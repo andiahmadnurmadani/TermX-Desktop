@@ -1,0 +1,52 @@
+name: Release
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest        # Apple silicon
+            args: --target aarch64-apple-darwin
+            target: aarch64-apple-darwin
+          - os: macos-15-intel      # Intel
+            args: --target x86_64-apple-darwin
+            target: x86_64-apple-darwin
+          - os: ubuntu-22.04
+            args: ""
+            target: ""
+          - os: windows-latest
+            args: ""
+            target: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux deps
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsecret-1-dev
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: swatinem/rust-cache@v2
+      - run: npm ci || npm install
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: TermX ${{ github.ref_name }}
+          releaseBody: See the README for install notes. Builds are unsigned on first release.
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}

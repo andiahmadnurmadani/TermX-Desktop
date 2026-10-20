@@ -1,0 +1,23 @@
+[package]
+name = "termx"
+version = "1.0.0"
+edition = "2021"
+description = "TermX — a free, modern SSH client"
+
+[lib]
+name = "termx_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+termx-core = { path = "../core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+async-trait = "0.1"
