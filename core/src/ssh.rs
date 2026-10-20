@@ -193,6 +193,9 @@ impl Manager {
                     return Ok(c.clone());
                 }
             }
+            if this.sb.is_locked() {
+                return Err(fatal("The vault is locked. Unlock TermX to connect."));
+            }
             let host = this.store.host(&host_id).ok_or_else(|| fatal("Host does not exist"))?;
             let jump = match host.jump_host_id.as_ref().filter(|j| **j != host_id) {
                 Some(j) => Some(this.connection_for(j.clone(), depth + 1).await?),
@@ -245,6 +248,7 @@ impl Manager {
 
     async fn authenticate(self: &Arc<Self>, host: &Host, handle: &mut client::Handle<ClientHandler>) -> Result<(), SshError> {
         match host.auth {
+            AuthType::Agent => agent_auth(handle, &host.username).await,
             AuthType::Key => {
                 let kid = host.key_id.clone().ok_or_else(|| fatal("No SSH key selected for this host"))?;
                 let rec = self.store.read(|v| v.keys.iter().find(|k| k.id == kid).cloned()).ok_or_else(|| fatal("SSH key for this host was not found"))?;
@@ -581,6 +585,84 @@ pub async fn exec_on(conn: &Conn, command: &str, stdin: Option<&str>, timeout: D
         })
     };
     tokio::time::timeout(timeout, work).await.map_err(|_| anyhow!("Command timed out"))?.map_err(|e| anyhow!("{e}"))
+}
+
+/// How a streamed command ended.
+pub enum StreamEnd {
+    Exited(Option<u32>),
+    TimedOut,
+    Cancelled,
+}
+
+/// Run `command` on a fresh channel, handing stdout/stderr chunks to `on_out(is_stderr, bytes)`.
+/// Cancellation sends SIGTERM and closes the channel; whether the remote process actually stops
+/// depends on the server (OpenSSH >= 7.9 honours signal requests).
+pub async fn exec_stream(
+    conn: &Conn,
+    command: &str,
+    timeout: Duration,
+    cancel: tokio_util::sync::CancellationToken,
+    mut on_out: impl FnMut(bool, &[u8]) + Send,
+) -> Result<StreamEnd> {
+    let mut ch = conn.handle.channel_open_session().await?;
+    ch.exec(true, command).await?;
+    let deadline = tokio::time::sleep(timeout);
+    tokio::pin!(deadline);
+    let mut exit = None;
+    loop {
+        tokio::select! {
+            msg = ch.wait() => match msg {
+                Some(ChannelMsg::Data { data }) => on_out(false, &data),
+                Some(ChannelMsg::ExtendedData { data, .. }) => on_out(true, &data),
+                Some(ChannelMsg::ExitStatus { exit_status }) => exit = Some(exit_status),
+                Some(_) => {}
+                None => return Ok(StreamEnd::Exited(exit)),
+            },
+            _ = &mut deadline => {
+                let _ = ch.signal(russh::Sig::TERM).await;
+                let _ = ch.close().await;
+                return Ok(StreamEnd::TimedOut);
+            }
+            _ = cancel.cancelled() => {
+                let _ = ch.signal(russh::Sig::TERM).await;
+                let _ = ch.close().await;
+                return Ok(StreamEnd::Cancelled);
+            }
+        }
+    }
+}
+
+/// Public-key auth through the local SSH agent: try each identity it offers.
+async fn agent_auth(handle: &mut client::Handle<ClientHandler>, user: &str) -> Result<(), SshError> {
+    #[cfg(unix)]
+    let mut agent = russh::keys::agent::client::AgentClient::connect_env()
+        .await
+        .map_err(|e| fatal(format!("SSH agent not available ({e}). Is ssh-agent running and SSH_AUTH_SOCK set?")))?;
+    #[cfg(windows)]
+    let mut agent = match russh::keys::agent::client::AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await {
+        Ok(a) => a.dynamic(),
+        Err(_) => russh::keys::agent::client::AgentClient::connect_pageant()
+            .await
+            .map_err(|e| fatal(format!("No SSH agent found (OpenSSH agent or Pageant): {e}")))?
+            .dynamic(),
+    };
+    let ids = agent.request_identities().await.map_err(|e| fatal(format!("SSH agent: {e}")))?;
+    if ids.is_empty() {
+        return Err(fatal("The SSH agent has no keys loaded (ssh-add)"));
+    }
+    let hash = handle.best_supported_rsa_hash().await.map_err(transient)?.flatten();
+    for id in ids {
+        let key = match &id {
+            russh::keys::agent::AgentIdentity::PublicKey { key, .. } => key.clone(),
+            russh::keys::agent::AgentIdentity::Certificate { .. } => continue,
+        };
+        match handle.authenticate_publickey_with(user.to_string(), key, hash, &mut agent).await {
+            Ok(r) if r.success() => return Ok(()),
+            Ok(_) => continue,
+            Err(e) => return Err(transient(format!("SSH agent: {e}"))),
+        }
+    }
+    Err(fatal("Authentication failed (no agent key was accepted)"))
 }
 
 /// Parse `uname -s` / os-release output into (icon id, pretty name).

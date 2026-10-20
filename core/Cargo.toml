@@ -19,4 +19,8 @@ dirs = "5"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 russh = "0.64.1"
 russh-sftp = "3.0.1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+argon2 = "0.5"
+zeroize = "1"
+tokio-util = "0.7"
 ssh-key = { version = "=0.7.0-rc.11", features = ["getrandom", "rsa", "ed25519", "rand_core"] }

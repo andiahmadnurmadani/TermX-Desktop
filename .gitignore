@@ -5,3 +5,4 @@ site/dist/
 src-tauri/gen/
 *.log
 .DS_Store
+__pycache__/

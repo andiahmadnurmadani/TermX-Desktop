@@ -11,7 +11,9 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, Manager as _, State};
 use termx_core::keys::{self, GenKind};
 use termx_core::model::*;
-use termx_core::secrets::SecretBox;
+use termx_core::overview::{self, Overview};
+use termx_core::secrets::{SecretBox, VaultMode};
+use termx_core::workflow::{Engine, Preview, WfEvent, WorkflowSink};
 use termx_core::sftp::{FileEntry, Progress, Sftp};
 use termx_core::ssh::{Ctl, HostKeyReq, Manager, PasswordAnswer, PasswordReq, SessionSink, Ui};
 use termx_core::store::Store;
@@ -29,6 +31,7 @@ struct AppState {
     sb: Arc<SecretBox>,
     mgr: Arc<Manager>,
     sftp: Arc<Sftp>,
+    engine: Arc<Engine>,
     prompts: Arc<Prompts>,
     data_dir: PathBuf,
 }
@@ -111,10 +114,25 @@ struct VaultView {
     snippets: Vec<Snippet>,
     known_hosts: Vec<KnownHost>,
     settings: Settings,
+    workspaces: Vec<Workspace>,
+    workflows: Vec<WorkflowDef>,
+    status: VaultStatus,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VaultStatus {
+    mode: VaultMode,
+    locked: bool,
+}
+
+fn status_of(sb: &SecretBox) -> VaultStatus {
+    VaultStatus { mode: sb.mode(), locked: sb.is_locked() }
 }
 
 #[tauri::command]
 fn vault_get(state: State<'_, AppState>) -> VaultView {
+    let status = status_of(&state.sb);
     state.store.read(|v| VaultView {
         hosts: v.hosts.iter().map(HostView::from).collect(),
         groups: v.groups.clone(),
@@ -122,7 +140,168 @@ fn vault_get(state: State<'_, AppState>) -> VaultView {
         snippets: v.snippets.clone(),
         known_hosts: v.known_hosts.clone(),
         settings: v.settings.clone(),
+        workspaces: v.workspaces.clone(),
+        workflows: v.workflows.clone(),
+        status,
     })
+}
+
+// ------------------------------------------------------------------ vault lock / master password / backup
+
+#[tauri::command]
+async fn vault_unlock(state: State<'_, AppState>, password: String) -> CmdResult<()> {
+    let sb = state.sb.clone();
+    // Argon2id is deliberately slow: keep it off the async runtime.
+    tokio::task::spawn_blocking(move || sb.unlock(&password)).await.map_err(err)?.map_err(err)
+}
+
+#[tauri::command]
+fn vault_lock(state: State<'_, AppState>) {
+    state.sb.lock();
+}
+
+#[tauri::command]
+async fn vault_set_master(state: State<'_, AppState>, current: Option<String>, password: Option<String>) -> CmdResult<()> {
+    let sb = state.sb.clone();
+    tokio::task::spawn_blocking(move || match (sb.mode(), current, password) {
+        (VaultMode::Keychain, _, Some(new)) => sb.enable_master(&new),
+        (VaultMode::Master, Some(old), Some(new)) => sb.change_master(&old, &new),
+        (VaultMode::Master, Some(old), None) => sb.disable_master(&old),
+        _ => Err(anyhow!("Invalid request")),
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
+#[tauri::command]
+async fn backup_export(state: State<'_, AppState>, path: String, password: String) -> CmdResult<()> {
+    let (store, sb) = (state.store.clone(), state.sb.clone());
+    let text = tokio::task::spawn_blocking(move || termx_core::backup::export(&store, &sb, &password)).await.map_err(err)?.map_err(err)?;
+    write_private(&path, text.as_bytes()).map_err(err)
+}
+
+#[tauri::command]
+async fn backup_import(state: State<'_, AppState>, path: String, password: String) -> CmdResult<termx_core::backup::RestoreReport> {
+    let text = std::fs::read_to_string(&path).map_err(err)?;
+    let (store, sb) = (state.store.clone(), state.sb.clone());
+    tokio::task::spawn_blocking(move || termx_core::backup::restore(&store, &sb, &text, &password)).await.map_err(err)?.map_err(err)
+}
+
+fn write_private(path: &str, bytes: &[u8]) -> std::io::Result<()> {
+    std::fs::write(path, bytes)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
+}
+
+// ------------------------------------------------------------------ workspaces
+
+#[tauri::command]
+fn workspace_save(state: State<'_, AppState>, workspace: Workspace) -> CmdResult<()> {
+    let mut w = workspace;
+    w.panes.resize(4, None);
+    w.panes.truncate(4);
+    w.col_split = w.col_split.clamp(0.15, 0.85);
+    w.row_split = w.row_split.clamp(0.15, 0.85);
+    if !["1", "2v", "2h", "4"].contains(&w.layout.as_str()) {
+        w.layout = "4".into();
+    }
+    state
+        .store
+        .update(|v| match v.workspaces.iter_mut().find(|x| x.id == w.id) {
+            Some(x) => *x = w,
+            None => v.workspaces.push(w),
+        })
+        .map_err(err)
+}
+
+#[tauri::command]
+fn workspace_delete(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    state.store.update(|v| v.workspaces.retain(|w| w.id != id)).map_err(err)
+}
+
+// ------------------------------------------------------------------ workflows
+
+struct EventSink(AppHandle);
+impl WorkflowSink for EventSink {
+    fn event(&self, ev: WfEvent) {
+        let _ = self.0.emit("workflow:event", ev);
+    }
+}
+
+#[tauri::command]
+fn workflow_save(state: State<'_, AppState>, workflow: WorkflowDef) -> CmdResult<()> {
+    let w = workflow;
+    if w.name.trim().is_empty() {
+        return Err("Give the workflow a name".into());
+    }
+    for p in &w.params {
+        if p.name.is_empty() || !p.name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(format!("Parameter names may only use letters, digits and _ (\"{}\")", p.name));
+        }
+    }
+    state
+        .store
+        .update(|v| match v.workflows.iter_mut().find(|x| x.id == w.id) {
+            Some(x) => *x = w,
+            None => v.workflows.push(w),
+        })
+        .map_err(err)
+}
+
+#[tauri::command]
+fn workflow_delete(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    state.store.update(|v| v.workflows.retain(|w| w.id != id)).map_err(err)?;
+    state.store.runs_clear(Some(&id)).map_err(err)
+}
+
+#[tauri::command]
+fn workflow_preview(state: State<'_, AppState>, workflow: WorkflowDef, host_ids: Vec<String>, params: HashMap<String, String>) -> CmdResult<Preview> {
+    state.engine.preview(&workflow, &host_ids, &params).map_err(err)
+}
+
+#[tauri::command]
+fn workflow_run(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    workflow: WorkflowDef,
+    host_ids: Vec<String>,
+    params: HashMap<String, String>,
+    confirmed: bool,
+) -> CmdResult<String> {
+    state.engine.start(workflow, host_ids, params, confirmed, Arc::new(EventSink(app))).map_err(err)
+}
+
+#[tauri::command]
+fn workflow_cancel(state: State<'_, AppState>, run_id: String) {
+    state.engine.cancel(&run_id);
+}
+
+#[tauri::command]
+fn workflow_runs(state: State<'_, AppState>, workflow_id: Option<String>) -> CmdResult<Vec<WorkflowRun>> {
+    state.store.runs_list(workflow_id.as_deref(), 100).map_err(err)
+}
+
+#[tauri::command]
+fn workflow_run_get(state: State<'_, AppState>, id: String) -> CmdResult<Option<WorkflowRun>> {
+    state.store.run_get(&id).map_err(err)
+}
+
+#[tauri::command]
+fn workflow_runs_clear(state: State<'_, AppState>, workflow_id: Option<String>) -> CmdResult<()> {
+    state.store.runs_clear(workflow_id.as_deref()).map_err(err)
+}
+
+// ------------------------------------------------------------------ overview
+
+#[tauri::command]
+async fn host_overview(state: State<'_, AppState>, host_id: String) -> CmdResult<Overview> {
+    let r = state.mgr.exec(&host_id, "sh -s", Some(overview::SCRIPT), Duration::from_secs(20)).await.map_err(err)?;
+    Ok(overview::parse(&r.stdout))
 }
 
 /// `password`: `None` keeps the stored one, `Some("")` clears it, otherwise it is encrypted and stored.
@@ -540,12 +719,13 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             let store = Arc::new(Store::open(&data_dir)?);
-            let sb = Arc::new(SecretBox::open(&data_dir)?);
+            let sb = Arc::new(SecretBox::open(store.clone())?);
             let prompts = Arc::new(Prompts::default());
             let ui = Arc::new(TauriUi { app: app.handle().clone(), prompts: prompts.clone() });
             let mgr = Manager::new(store.clone(), sb.clone(), ui);
             let sftp = Sftp::new(mgr.clone());
-            app.manage(AppState { store, sb, mgr, sftp, prompts, data_dir });
+            let engine = Engine::new(mgr.clone(), store.clone());
+            app.manage(AppState { store, sb, mgr, sftp, engine, prompts, data_dir });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -583,6 +763,22 @@ pub fn run() {
             file_read_text,
             config_export,
             config_import,
+            vault_unlock,
+            vault_lock,
+            vault_set_master,
+            backup_export,
+            backup_import,
+            workspace_save,
+            workspace_delete,
+            workflow_save,
+            workflow_delete,
+            workflow_preview,
+            workflow_run,
+            workflow_cancel,
+            workflow_runs,
+            workflow_run_get,
+            workflow_runs_clear,
+            host_overview,
         ])
         .run(tauri::generate_context!())
         .expect("error while running TermX");

@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { Download, Trash2, Upload } from "lucide-react";
+import { Archive, Download, KeyRound, Lock, Trash2, Upload } from "lucide-react";
 import { api, errText } from "../lib/api";
 import { useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
 import { THEME_IDS, THEME_NAMES, terminalTheme } from "../lib/themes";
 import { useResolvedDark } from "../lib/theme";
-import { Seg, Switch } from "./ui";
+import { Field, Modal, PasswordInput, Seg, Switch } from "./ui";
 
 const ACCENTS = ["#3ddc97", "#5aa9ff", "#b58cff", "#ff8ab3", "#ffb35c", "#f2d45c", "#5fd7e0", "#ff6b6b"];
 const FONTS = ["JetBrains Mono", "Menlo", "SF Mono", "Consolas", "Cascadia Code", "Fira Code", "Source Code Pro", "DejaVu Sans Mono", "Ubuntu Mono", "monospace"];
@@ -28,12 +28,76 @@ function NumInput({ value, min, max, step, width, onCommit }: { value: number; m
   return <input className="input" type="number" step={step} min={min} max={max} style={{ width }} value={txt} onChange={(e) => setTxt(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />;
 }
 
+type PwDialog =
+  | { kind: "enable" } | { kind: "change" } | { kind: "disable" }
+  | { kind: "backup"; path: string } | { kind: "restore"; path: string };
+
+function PasswordDialog({ d, onClose }: { d: PwDialog; onClose: () => void }) {
+  const t = useT();
+  const { load, toast } = useStore();
+  const [cur, setCur] = useState("");
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [busy, setBusy] = useState(false);
+  const needCur = d.kind === "change" || d.kind === "disable";
+  const needNew = d.kind !== "disable" && d.kind !== "restore";
+  const needOne = d.kind === "restore";
+  const valid = (!needCur || cur) && (!needNew || (pw.length >= 8 && pw === pw2)) && (!needOne || pw);
+  const title = t(("sec.dlg." + d.kind) as never);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!valid) return;
+    setBusy(true);
+    try {
+      if (d.kind === "enable") await api.vaultSetMaster(null, pw);
+      if (d.kind === "change") await api.vaultSetMaster(cur, pw);
+      if (d.kind === "disable") await api.vaultSetMaster(cur, null);
+      if (d.kind === "backup") await api.backupExport(d.path, pw);
+      if (d.kind === "restore") {
+        const r = await api.backupImport(d.path, pw);
+        toast(t("sec.restored", { hosts: r.hosts, keys: r.keys, workflows: r.workflows, workspaces: r.workspaces }), "ok");
+      } else toast(t("common.saved"), "ok");
+      await load();
+      onClose();
+    } catch (e2) { toast(errText(e2), "error"); }
+    setBusy(false);
+  };
+  return (
+    <Modal onClose={onClose}>
+      <form onSubmit={submit}>
+        <h3>{title}</h3>
+        <p>{t(("sec.dlgBody." + d.kind) as never)}</p>
+        <div className="stack">
+          {needCur && <Field label={t("sec.current")}><PasswordInput value={cur} onChange={setCur} autoFocus /></Field>}
+          {needNew && <Field label={t("sec.new")} hint={t("sec.minLen")}><PasswordInput value={pw} onChange={setPw} autoFocus={!needCur} /></Field>}
+          {needNew && <Field label={t("sec.repeat")} hint={pw2 && pw !== pw2 ? t("sec.mismatch") : undefined}><PasswordInput value={pw2} onChange={setPw2} /></Field>}
+          {needOne && <Field label={t("sec.backupPw")}><PasswordInput value={pw} onChange={setPw} autoFocus /></Field>}
+        </div>
+        <div className="actions">
+          <button type="button" className="btn" onClick={onClose}>{t("common.cancel")}</button>
+          <button type="submit" className={"btn " + (d.kind === "disable" ? "danger solid" : "primary")} disabled={!valid || busy}>{busy ? <span className="mini-spin" /> : null}{t("common.confirm")}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 export function SettingsView() {
   const t = useT();
   const { vault, saveSettings, run, info, toast } = useStore();
   const dark = useResolvedDark();
   const s = vault!.settings;
   const [fontText, setFontText] = useState(s.fontFamily);
+  const [dlg, setDlg] = useState<PwDialog | null>(null);
+  const status = vault!.status;
+  const startBackup = async () => {
+    const p = await saveDialog({ defaultPath: `termx-backup-${new Date().toISOString().slice(0, 10)}.termx`, filters: [{ name: "TermX backup", extensions: ["termx"] }] });
+    if (p) setDlg({ kind: "backup", path: p });
+  };
+  const startRestore = async () => {
+    const p = await openDialog({ multiple: false, filters: [{ name: "TermX backup", extensions: ["termx", "json"] }] });
+    if (typeof p === "string") setDlg({ kind: "restore", path: p });
+  };
   useEffect(() => setFontText(s.fontFamily), [s.fontFamily]);
 
   const doExport = async () => {
@@ -109,6 +173,36 @@ export function SettingsView() {
           <Row title={t("set.copyOnSelect")}><Switch on={s.copyOnSelect} onChange={(b) => saveSettings({ copyOnSelect: b })} /></Row>
         </div>
       </div>
+
+      <div className="section">
+        <h2>{t("set.security")}</h2>
+        <div className="panel list">
+          <Row title={t("sec.vault")} hint={t(status.mode === "master" ? "sec.modeMaster" : "sec.modeKeychain")}>
+            {status.mode === "master" ? (
+              <div className="row" style={{ gap: 6 }}>
+                <button className="btn" onClick={() => setDlg({ kind: "change" })}><KeyRound size={14} />{t("sec.change")}</button>
+                <button className="btn danger" onClick={() => setDlg({ kind: "disable" })}>{t("sec.remove")}</button>
+              </div>
+            ) : (
+              <button className="btn primary" onClick={() => setDlg({ kind: "enable" })}><Lock size={14} />{t("sec.enable")}</button>
+            )}
+          </Row>
+          {status.mode === "master" && (
+            <Row title={t("sec.autoLock")} hint={t("sec.autoLockHint")}>
+              <Seg value={String(s.autoLockMin)} onChange={(v) => saveSettings({ autoLockMin: Number(v) })} options={[
+                { v: "5", label: "5m" }, { v: "15", label: "15m" }, { v: "30", label: "30m" }, { v: "60", label: "1h" }, { v: "0", label: t("sec.never") },
+              ]} />
+            </Row>
+          )}
+          <Row title={t("sec.backup")} hint={t("sec.backupHint")}>
+            <div className="row" style={{ gap: 6 }}>
+              <button className="btn" onClick={startBackup}><Archive size={14} />{t("sec.backupNow")}</button>
+              <button className="btn" onClick={startRestore}><Upload size={14} />{t("sec.restore")}</button>
+            </div>
+          </Row>
+        </div>
+      </div>
+      {dlg && <PasswordDialog d={dlg} onClose={() => setDlg(null)} />}
 
       <div className="section">
         <h2>{t("set.knownHosts")}</h2>

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { Copy, FolderOpen, FolderPlus, Pencil, Plus, Search, Server, Terminal, Trash2, X } from "lucide-react";
-import { api, type Host } from "../lib/api";
+import { Copy, FolderOpen, FolderPlus, LayoutGrid, Pencil, Plus, Search, Server, Terminal, Trash2, X } from "lucide-react";
+import { api, type Env, type Host } from "../lib/api";
 import { useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
 import { ago } from "../lib/util";
@@ -9,9 +9,15 @@ import { ContextMenu, EmptyState, type MenuItem } from "./ui";
 
 export const hostColor = (c: number) => `var(--c${c % 8})`;
 
+const ENV_SHORT: Record<string, string> = { development: "dev", staging: "staging", production: "prod" };
+export function EnvBadge({ env }: { env: Env | string }) {
+  if (!env) return null;
+  return <span className={"env env-" + env}>{ENV_SHORT[env] ?? env}</span>;
+}
+
 export function HostCard({ host, i }: { host: Host; i: number }) {
   const t = useT();
-  const { openTerm, openSftp, openHostDialog, run } = useStore();
+  const { openTerm, openSftp, openHostDialog, openHostInGrid, run } = useStore();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
   const duplicate = () => run(api.hostSave({ ...host, id: crypto.randomUUID(), label: host.label + " copy", lastConnectedAt: 0, createdAt: Date.now() }, null), undefined);
@@ -19,6 +25,7 @@ export function HostCard({ host, i }: { host: Host; i: number }) {
   const items: MenuItem[] = [
     { label: t("hosts.connect"), icon: <Terminal size={14} />, onClick: () => openTerm(host.id) },
     { label: t("hosts.sftp"), icon: <FolderOpen size={14} />, onClick: () => openSftp(host.id) },
+    { label: t("hosts.openInWorkspace"), icon: <LayoutGrid size={14} />, onClick: () => openHostInGrid(host.id) },
     { sep: true, label: "", onClick: () => {} },
     { label: t("common.edit"), icon: <Pencil size={14} />, onClick: () => openHostDialog(host.id) },
     { label: t("hosts.duplicate"), icon: <Copy size={14} />, onClick: duplicate },
@@ -35,7 +42,7 @@ export function HostCard({ host, i }: { host: Host; i: number }) {
       >
         <div className="avatar"><Server size={18} /></div>
         <div className="meta">
-          <div className="name">{host.label}</div>
+          <div className="name">{host.label}<EnvBadge env={host.environment} /></div>
           <div className="sub">{host.username}@{host.hostname}{host.port !== 22 ? `:${host.port}` : ""}</div>
           {(host.tags.length > 0 || host.osName) && (
             <div className="tags">
@@ -45,6 +52,7 @@ export function HostCard({ host, i }: { host: Host; i: number }) {
           )}
         </div>
         <div className="acts" onClick={(e) => e.stopPropagation()}>
+          <button className="icon-btn" title={t("hosts.openInWorkspace")} onClick={() => openHostInGrid(host.id)}><LayoutGrid size={15} /></button>
           <button className="icon-btn" title={t("hosts.sftp")} onClick={() => openSftp(host.id)}><FolderOpen size={15} /></button>
           <button className="icon-btn" title={t("common.edit")} onClick={() => openHostDialog(host.id)}><Pencil size={15} /></button>
         </div>
@@ -67,7 +75,7 @@ export function HostsView() {
     return hosts.filter((h) => {
       if (groupId !== "all" && (h.groupId ?? "") !== (groupId === "none" ? "" : groupId)) return false;
       if (!s) return true;
-      return [h.label, h.hostname, h.username, h.osName ?? "", ...h.tags].some((x) => x.toLowerCase().includes(s));
+      return [h.label, h.hostname, h.username, h.osName ?? "", h.environment, ...h.tags].some((x) => x.toLowerCase().includes(s));
     });
   }, [hosts, q, groupId]);
 

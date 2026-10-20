@@ -57,8 +57,8 @@ mod tests {
     use super::*;
     #[test]
     fn generate_and_reload() {
-        let dir = std::env::temp_dir().join(format!("termx-keys-{}", std::process::id()));
-        let sb = SecretBox::open(&dir).unwrap();
+        let dir = std::env::temp_dir().join(format!("termx-keys-{}-{}", std::process::id(), new_id()));
+        let sb = SecretBox::ephemeral(std::sync::Arc::new(crate::store::Store::open(&dir).unwrap()));
         let rec = generate(&sb, "t", GenKind::Ed25519, "me@test").unwrap();
         assert!(rec.public_key.starts_with("ssh-ed25519 "));
         assert!(rec.fingerprint.starts_with("SHA256:"));

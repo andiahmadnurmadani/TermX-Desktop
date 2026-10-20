@@ -1,13 +1,13 @@
 import { useMemo, useState } from "react";
 import { ChevronRight, Trash2 } from "lucide-react";
-import { api, errText, type Host } from "../lib/api";
+import { api, errText, type Env, type Host } from "../lib/api";
 import { useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
 import { confirmDialog } from "../lib/dialogs";
 import { Drawer, Field, PasswordInput, Seg, Switch } from "./ui";
 
 const blank = (): Partial<Host> => ({
-  id: crypto.randomUUID(), label: "", hostname: "", port: 22, username: "", auth: "password", keyId: null, groupId: null, tags: [],
+  id: crypto.randomUUID(), label: "", hostname: "", port: 22, username: "", auth: "password", keyId: null, groupId: null, tags: [], environment: "",
   color: Math.floor(Math.random() * 8), tmux: false, tmuxName: "termx", jumpHostId: null, startupCommand: "", keepaliveSec: 20, autoReconnect: true, notes: "",
 });
 
@@ -60,8 +60,10 @@ export function HostDrawer() {
         <Field label={`${t("host.label")} (${t("common.optional")})`}><input className="input" value={h.label ?? ""} placeholder={h.hostname || "My server"} onChange={(e) => set("label", e.target.value)} /></Field>
 
         <div className="sect-label">{t("host.auth")}</div>
-        <Seg value={h.auth ?? "password"} onChange={(v) => set("auth", v)} options={[{ v: "password", label: t("host.authPassword") }, { v: "key", label: t("host.authKey") }]} />
-        {h.auth === "key" ? (
+        <Seg value={h.auth ?? "password"} onChange={(v) => set("auth", v)} options={[{ v: "password", label: t("host.authPassword") }, { v: "key", label: t("host.authKey") }, { v: "agent", label: t("host.authAgent") }]} />
+        {h.auth === "agent" ? (
+          <p className="hint-block">{t("host.agentHint")}</p>
+        ) : h.auth === "key" ? (
           <Field label={t("host.key")} hint={keys.length === 0 ? t("host.noKeys") : undefined}>
             <select className="select" value={h.keyId ?? ""} onChange={(e) => set("keyId", e.target.value || null)}>
               <option value="">—</option>
@@ -73,6 +75,13 @@ export function HostDrawer() {
             <PasswordInput value={password} onChange={setPassword} placeholder={existing?.hasPassword ? "••••••••" : ""} />
           </Field>
         )}
+
+        <div className="sect-label">{t("host.environment")}</div>
+        <Seg value={(h.environment ?? "") as Env} onChange={(v) => set("environment", v)} options={[
+          { v: "", label: t("common.none") }, { v: "development", label: t("env.development") },
+          { v: "staging", label: t("env.staging") }, { v: "production", label: t("env.production") },
+        ]} />
+        {h.environment === "production" && <p className="hint-block">{t("host.prodHint")}</p>}
 
         <div className="sect-label">{t("host.group")}</div>
         <div className="row">

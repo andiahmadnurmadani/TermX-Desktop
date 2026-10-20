@@ -6,15 +6,16 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowDown, ArrowUp, FolderOpen, RefreshCw, Search, TerminalSquare, X, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, FolderOpen, Maximize2, Minimize2, RefreshCw, Search, TerminalSquare, X, Zap } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 import { api, Channel, errText, events, type Settings } from "../lib/api";
-import { termHandles, useStore, type Tab } from "../lib/store";
+import { termHandles, useStore, type SessionInfo } from "../lib/store";
 import { terminalTheme } from "../lib/themes";
 import { useResolvedDark } from "../lib/theme";
 import { useT } from "../lib/i18n";
 import { isMac, isMod } from "../lib/util";
 import { ContextMenu } from "./ui";
+import { EnvBadge } from "./HostsView";
 
 const fontStack = (f: string) => `"${f}", "JetBrains Mono", "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace`;
 
@@ -28,7 +29,11 @@ function applySettings(term: Terminal, s: Settings, dark: boolean) {
   term.options.theme = terminalTheme(s.terminalTheme, dark, s.accent);
 }
 
-export function TerminalView({ tab, visible }: { tab: Tab; visible: boolean }) {
+/** Extra chrome when the terminal lives in a workspace pane. */
+export interface PaneChrome { focused: boolean; maximized: boolean; onFocus: () => void; onToggleMax: () => void }
+
+export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: string; hostId: string; visible: boolean; onClose: () => void; pane?: PaneChrome }) {
+  const tab = { id: sid, hostId };
   const t = useT();
   const mountRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -38,7 +43,10 @@ export function TerminalView({ tab, visible }: { tab: Tab; visible: boolean }) {
   const settings = useStore((s) => s.vault!.settings);
   const host = useStore((s) => s.vault?.hosts.find((h) => h.id === tab.hostId));
   const snippets = useStore((s) => s.vault?.snippets ?? []);
-  const { patchTab, openSftp, closeTab, toast } = useStore();
+  const session: SessionInfo = useStore((s) => s.sessions[sid]) ?? { state: "connecting" };
+  const { patchSession, openSftp, toast } = useStore();
+  const focusedRef = useRef(pane?.focused ?? true);
+  focusedRef.current = pane?.focused ?? true;
   const dark = useResolvedDark();
   const [find, setFind] = useState(false);
   const [q, setQ] = useState("");
@@ -91,7 +99,7 @@ export function TerminalView({ tab, visible }: { tab: Tab; visible: boolean }) {
       term.attachCustomKeyEventHandler((e) => {
         if (e.type !== "keydown") return true;
         if (isMod(e, "f")) { setFind(true); setTimeout(() => findInput.current?.focus(), 0); return false; }
-        if (["k", "w", "t", "[", "]", "1", "2", "3", "4", "5", "6", "7", "8", "9"].some((k) => isMod(e, k))) return false;
+        if (["k", "w", "t", "[", "]", "enter", "1", "2", "3", "4", "5", "6", "7", "8", "9"].some((k) => isMod(e, k))) return false;
         if (!isMac && e.ctrlKey && e.shiftKey) {
           if (e.key === "C") { const sel = term.getSelection(); if (sel) navigator.clipboard.writeText(sel); return false; }
           if (e.key === "V") { navigator.clipboard.readText().then((x) => term.paste(x)).catch(() => {}); return false; }
@@ -117,9 +125,9 @@ export function TerminalView({ tab, visible }: { tab: Tab; visible: boolean }) {
       ro.observe(el);
       cleanups.push(() => { ro.disconnect(); cancelAnimationFrame(raf); });
 
-      const un = await events.on<{ id: string; state: Tab["state"]; message?: string }>("session:state", (p) => {
+      const un = await events.on<{ id: string; state: SessionInfo["state"]; message?: string }>("session:state", (p) => {
         if (p.id !== tab.id) return;
-        patchTab(tab.id, { state: p.state, message: p.message ?? undefined });
+        patchSession(tab.id, { state: p.state, message: p.message ?? undefined });
         if (p.state === "connected") setEverConnected(true);
       });
       cleanups.push(un);
@@ -130,9 +138,9 @@ export function TerminalView({ tab, visible }: { tab: Tab; visible: boolean }) {
       try {
         await api.sshOpen(tab.id, tab.hostId, term.cols, term.rows, ch);
       } catch (e) {
-        patchTab(tab.id, { state: "failed", message: errText(e) });
+        patchSession(tab.id, { state: "failed", message: errText(e) });
       }
-      if (visibleRef.current) term.focus();
+      if (visibleRef.current && focusedRef.current) term.focus();
     })();
 
     return () => {
@@ -157,9 +165,12 @@ export function TerminalView({ tab, visible }: { tab: Tab; visible: boolean }) {
   // refit + focus when shown
   useEffect(() => {
     if (!visible) return;
-    const id = requestAnimationFrame(() => { try { fitRef.current?.fit(); } catch { /* ignore */ } termRef.current?.focus(); });
+    const id = requestAnimationFrame(() => { try { fitRef.current?.fit(); } catch { /* ignore */ } if (focusedRef.current) termRef.current?.focus(); });
     return () => cancelAnimationFrame(id);
-  }, [visible]);
+  }, [visible, pane?.maximized]);
+
+  // focus follows the selected pane
+  useEffect(() => { if (pane?.focused && visible) termRef.current?.focus(); }, [pane?.focused, visible]);
 
   const bg = terminalTheme(settings.terminalTheme, dark, settings.accent).background ?? "#0e0f12";
   const runSnippet = (cmd: string, auto: boolean) => { setSnipOpen(false); api.sshWrite(tab.id, cmd + (auto ? "\r" : "")); termRef.current?.focus(); };
@@ -170,15 +181,17 @@ export function TerminalView({ tab, visible }: { tab: Tab; visible: boolean }) {
     if (dir === "next") searchRef.current?.findNext(text, opts); else searchRef.current?.findPrevious(text, opts);
   };
 
-  const overlay = tab.state === "failed" || tab.state === "ended" || (tab.state === "connecting" && !everConnected);
+  const state = session.state;
+  const overlay = state === "failed" || state === "ended" || (state === "connecting" && !everConnected);
 
   return (
-    <div className={"tpane" + (visible ? "" : " hidden")} style={{ ["--term-bg" as string]: bg }}>
-      <div className="tbar">
-        <div className="who"><span className={"dot " + tab.state} />{host ? `${host.username}@${host.hostname}` : ""}{host?.tmux && <span className="tag">tmux</span>}</div>
+    <div className={"tpane" + (visible ? "" : " hidden") + (pane ? " in-pane" : "") + (pane?.focused ? " focused" : "")} style={{ ["--term-bg" as string]: bg }}
+      onMouseDownCapture={pane ? () => { if (!pane.focused) pane.onFocus(); } : undefined}>
+      <div className="tbar" onDoubleClick={pane ? (e) => { if ((e.target as HTMLElement).closest("button")) return; pane.onToggleMax(); } : undefined}>
+        <div className="who"><span className={"dot " + state} />{pane && host ? <b className="pane-name">{host.label}</b> : null}{host?.environment && <EnvBadge env={host.environment} />}<span className="addr">{host ? `${host.username}@${host.hostname}` : ""}</span>{host?.tmux && <span className="tag">tmux</span>}</div>
         <div className="sp" />
         <div style={{ position: "relative" }}>
-          <button className="btn ghost sm" onClick={() => setSnipOpen(!snipOpen)}><Zap size={14} />{t("term.snippets")}</button>
+          <button className="btn ghost sm" onClick={() => setSnipOpen(!snipOpen)}><Zap size={14} /><span className="lbl">{t("term.snippets")}</span></button>
           {snipOpen && (
             <>
               <div style={{ position: "fixed", inset: 0, zIndex: 29 }} onMouseDown={() => setSnipOpen(false)} />
@@ -191,6 +204,8 @@ export function TerminalView({ tab, visible }: { tab: Tab; visible: boolean }) {
         </div>
         <button className="icon-btn" title={t("term.search")} onClick={() => { setFind(!find); setTimeout(() => findInput.current?.focus(), 0); }}><Search size={15} /></button>
         <button className="icon-btn" title={t("term.sftp")} onClick={() => openSftp(tab.hostId)}><FolderOpen size={15} /></button>
+        {pane && <button className="icon-btn" title={t(pane.maximized ? "ws.restore" : "ws.maximize")} onClick={pane.onToggleMax}>{pane.maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</button>}
+        {pane && <button className="icon-btn" title={t("ws.closePane")} onClick={onClose}><X size={15} /></button>}
       </div>
 
       {find && (
@@ -205,7 +220,7 @@ export function TerminalView({ tab, visible }: { tab: Tab; visible: boolean }) {
       )}
 
       <div className="tmount" ref={mountRef} onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); }}>
-        {tab.state === "reconnecting" && (
+        {state === "reconnecting" && (
           <div className="findbar" style={{ top: 8, left: "50%", right: "auto", transform: "translateX(-50%)", padding: "7px 14px", gap: 10 }}>
             <div className="spinner" style={{ width: 14, height: 14 }} />{t("term.reconnecting")}
           </div>
@@ -213,13 +228,13 @@ export function TerminalView({ tab, visible }: { tab: Tab; visible: boolean }) {
         {overlay && (
           <div className="overlay-msg">
             <div className="overlay-card">
-              {tab.state === "connecting" ? <div className="spinner" /> : <TerminalSquare size={26} color="var(--danger)" />}
-              <div style={{ fontWeight: 600 }}>{t(tab.state === "connecting" ? "term.connecting" : tab.state === "ended" ? "term.ended" : "term.failed")}</div>
-              {tab.message && tab.state !== "connecting" && <div className="msg">{tab.message}</div>}
-              {tab.state !== "connecting" && (
+              {state === "connecting" ? <div className="spinner" /> : <TerminalSquare size={26} color="var(--danger)" />}
+              <div style={{ fontWeight: 600 }}>{t(state === "connecting" ? "term.connecting" : state === "ended" ? "term.ended" : "term.failed")}</div>
+              {session.message && state !== "connecting" && <div className="msg">{session.message}</div>}
+              {state !== "connecting" && (
                 <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                  <button className="btn primary" onClick={() => { patchTab(tab.id, { state: "connecting", message: undefined }); api.sshReconnect(tab.id).catch((e) => toast(errText(e), "error")); }}><RefreshCw size={14} />{t("term.reconnect")}</button>
-                  <button className="btn" onClick={() => closeTab(tab.id)}>{t("term.closeTab")}</button>
+                  <button className="btn primary" onClick={() => { patchSession(tab.id, { state: "connecting" }); api.sshReconnect(tab.id).catch((e) => toast(errText(e), "error")); }}><RefreshCw size={14} />{t("term.reconnect")}</button>
+                  <button className="btn" onClick={onClose}>{t(pane ? "ws.closePane" : "term.closeTab")}</button>
                 </div>
               )}
             </div>

@@ -17,6 +17,8 @@ pub enum AuthType {
     #[default]
     Password,
     Key,
+    /// Keys held by the local SSH agent (ssh-agent, Pageant, Windows OpenSSH agent).
+    Agent,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -34,6 +36,8 @@ pub struct Host {
     pub key_id: Option<String>,
     pub group_id: Option<String>,
     pub tags: Vec<String>,
+    /// "" | "development" | "staging" | "production"
+    pub environment: String,
     pub color: u8,
     /// Run the shell inside tmux so it survives disconnects.
     pub tmux: bool,
@@ -62,6 +66,7 @@ impl Default for Host {
             key_id: None,
             group_id: None,
             tags: vec![],
+            environment: String::new(),
             color: 0,
             tmux: false,
             tmux_name: "termx".into(),
@@ -118,7 +123,7 @@ pub struct SshKeyRec {
     pub public_key: String,
     #[serde(skip_serializing, default)]
     pub private_enc: String,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[serde(skip_serializing, default)]
     pub passphrase_enc: Option<String>,
     pub fingerprint: String,
     pub created_at: i64,
@@ -169,6 +174,8 @@ pub struct Settings {
     /// "en" | "id"
     pub language: String,
     pub accent: String,
+    /// Minutes of inactivity before the vault locks (master-password mode only). 0 = never.
+    pub auto_lock_min: u32,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -184,6 +191,7 @@ impl Default for Settings {
             copy_on_select: true,
             language: "en".into(),
             accent: "#3ddc97".into(),
+            auto_lock_min: 15,
         }
     }
 }
@@ -198,6 +206,8 @@ pub struct Vault {
     pub snippets: Vec<Snippet>,
     pub known_hosts: Vec<KnownHost>,
     pub settings: Settings,
+    pub workspaces: Vec<Workspace>,
+    pub workflows: Vec<WorkflowDef>,
 }
 impl Default for Vault {
     fn default() -> Self {
@@ -209,8 +219,186 @@ impl Default for Vault {
             snippets: default_snippets(),
             known_hosts: vec![],
             settings: Settings::default(),
+            workspaces: vec![],
+            workflows: default_workflows(),
         }
     }
+}
+
+// ------------------------------------------------------------------ workspaces
+
+/// A saved multi-terminal layout. Only the pane -> host mapping is stored: live sessions are
+/// never restored from disk, they are opened fresh when the workspace is opened.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Workspace {
+    pub id: String,
+    pub name: String,
+    /// "1" | "2v" (side by side) | "2h" (stacked) | "4" (2x2)
+    pub layout: String,
+    /// Split positions as fractions (0.15..0.85): vertical divider, horizontal divider.
+    pub col_split: f32,
+    pub row_split: f32,
+    /// Exactly four slots; `None` = empty pane.
+    pub panes: Vec<Option<String>>,
+    pub created_at: i64,
+}
+impl Default for Workspace {
+    fn default() -> Self {
+        Workspace {
+            id: new_id(),
+            name: String::new(),
+            layout: "4".into(),
+            col_split: 0.5,
+            row_split: 0.5,
+            panes: vec![None, None, None, None],
+            created_at: now_ms(),
+        }
+    }
+}
+
+// ------------------------------------------------------------------ workflows
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WorkflowParam {
+    /// Referenced in commands as {{name}}.
+    pub name: String,
+    pub label: String,
+    pub default: String,
+    /// Masked in history and output.
+    pub secret: bool,
+}
+impl Default for WorkflowParam {
+    fn default() -> Self {
+        WorkflowParam { name: String::new(), label: String::new(), default: String::new(), secret: false }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WorkflowStep {
+    pub id: String,
+    pub name: String,
+    pub command: String,
+    pub timeout_sec: u32,
+    /// Exit codes that count as success. Empty = only 0.
+    pub ok_exit: Vec<u32>,
+    /// Optional extra success condition: stdout must contain this text.
+    pub expect_output: String,
+    /// Keep running the next steps on this host when this one fails.
+    pub continue_on_error: bool,
+}
+impl Default for WorkflowStep {
+    fn default() -> Self {
+        WorkflowStep {
+            id: new_id(),
+            name: String::new(),
+            command: String::new(),
+            timeout_sec: 60,
+            ok_exit: vec![],
+            expect_output: String::new(),
+            continue_on_error: false,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WorkflowDef {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    /// Default targets; can be changed per run.
+    pub host_ids: Vec<String>,
+    pub params: Vec<WorkflowParam>,
+    pub steps: Vec<WorkflowStep>,
+    /// How many hosts run at the same time.
+    pub parallel: u32,
+    pub created_at: i64,
+}
+impl Default for WorkflowDef {
+    fn default() -> Self {
+        WorkflowDef {
+            id: new_id(),
+            name: String::new(),
+            description: String::new(),
+            host_ids: vec![],
+            params: vec![],
+            steps: vec![],
+            parallel: 4,
+            created_at: now_ms(),
+        }
+    }
+}
+
+/// One execution of a workflow (history row).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowRun {
+    pub id: String,
+    pub workflow_id: String,
+    pub workflow_name: String,
+    pub host_ids: Vec<String>,
+    /// Parameter values with secrets masked.
+    pub params: Vec<(String, String)>,
+    pub started_at: i64,
+    pub finished_at: i64,
+    /// running | ok | failed | cancelled
+    pub status: String,
+    pub steps: Vec<StepRun>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct StepRun {
+    pub host_id: String,
+    pub host_label: String,
+    pub idx: u32,
+    pub name: String,
+    /// Rendered command with secrets masked.
+    pub command: String,
+    pub started_at: i64,
+    pub finished_at: i64,
+    pub exit_code: Option<u32>,
+    /// pending | running | ok | failed | skipped | cancelled | timeout
+    pub status: String,
+    pub stdout: String,
+    pub stderr: String,
+    pub error: String,
+}
+
+pub fn default_workflows() -> Vec<WorkflowDef> {
+    let step = |name: &str, command: &str, timeout_sec: u32| WorkflowStep {
+        name: name.into(),
+        command: command.into(),
+        timeout_sec,
+        continue_on_error: true,
+        ..Default::default()
+    };
+    vec![
+        WorkflowDef {
+            name: "Health check".into(),
+            description: "Uptime, memory, disk and failed services".into(),
+            steps: vec![
+                step("Uptime", "uptime", 20),
+                step("Memory", "free -h 2>/dev/null || vm_stat", 20),
+                step("Disk", "df -hP -x tmpfs -x devtmpfs 2>/dev/null || df -h", 30),
+                step("Failed services", "systemctl --failed --no-legend --no-pager 2>/dev/null || echo 'systemd not available'", 30),
+            ],
+            ..Default::default()
+        },
+        WorkflowDef {
+            name: "Service status".into(),
+            description: "Status and recent log lines of one systemd service".into(),
+            params: vec![WorkflowParam { name: "service".into(), label: "Service".into(), default: "nginx".into(), secret: false }],
+            steps: vec![
+                WorkflowStep { name: "Status".into(), command: "systemctl is-active {{service}}".into(), timeout_sec: 20, ..Default::default() },
+                step("Recent logs", "journalctl -u {{service}} -n 50 --no-pager", 30),
+            ],
+            ..Default::default()
+        },
+    ]
 }
 
 pub fn default_snippets() -> Vec<Snippet> {

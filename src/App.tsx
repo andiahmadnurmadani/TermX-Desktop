@@ -1,7 +1,8 @@
 import { useEffect } from "react";
-import { FolderOpen, KeyRound, Plus, Search, Server, Settings, X, Zap } from "lucide-react";
+import { Activity, FolderOpen, KeyRound, LayoutGrid, ListChecks, Lock, Plus, Search, Server, Settings, Workflow, X, Zap } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useStore, type View } from "./lib/store";
+import { tabState, useStore, type View } from "./lib/store";
+import { api } from "./lib/api";
 import { useT, type Key } from "./lib/i18n";
 import { useApplyTheme } from "./lib/theme";
 import { isMac, isMod, modLabel } from "./lib/util";
@@ -13,11 +14,20 @@ import { KeysView } from "./components/KeysView";
 import { SnippetsView } from "./components/SnippetsView";
 import { SettingsView } from "./components/SettingsView";
 import { Prompts } from "./components/Prompts";
+import { GridView } from "./components/GridView";
+import { RunView } from "./components/RunView";
+import { WorkspacesView } from "./components/WorkspacesView";
+import { WorkflowsView } from "./components/WorkflowsView";
+import { OverviewView } from "./components/OverviewView";
+import { LockScreen, useAutoLock } from "./components/LockScreen";
 import { Palette } from "./components/Palette";
 import { DialogHost, Toasts } from "./components/ui";
 
 const NAV: { v: View; icon: typeof Server; label: Key }[] = [
   { v: "hosts", icon: Server, label: "nav.hosts" },
+  { v: "workspaces", icon: LayoutGrid, label: "nav.workspaces" },
+  { v: "workflows", icon: Workflow, label: "nav.workflows" },
+  { v: "overview", icon: Activity, label: "nav.overview" },
   { v: "keys", icon: KeyRound, label: "nav.keys" },
   { v: "snippets", icon: Zap, label: "nav.snippets" },
   { v: "settings", icon: Settings, label: "nav.settings" },
@@ -25,8 +35,9 @@ const NAV: { v: View; icon: typeof Server; label: Key }[] = [
 
 export default function App() {
   const t = useT();
-  const { vault, load, view, setView, tabs, active, setActive, closeTab, hostDialog, palette, setPalette, openHostDialog, toast } = useStore();
+  const { vault, load, view, setView, tabs, active, setActive, closeTab, hostDialog, palette, setPalette, openHostDialog, toast, sessions } = useStore();
   useApplyTheme();
+  useAutoLock();
 
   useEffect(() => { load().catch((e) => toast(String(e), "error")); }, [load, toast]);
 
@@ -73,6 +84,9 @@ export default function App() {
             </button>
           ))}
         </nav>
+        {vault.status.mode === "master" && (
+          <button className="lock-btn" title={t("lock.now")} onClick={() => api.vaultLock().then(load).catch(() => {})}><Lock size={14} />{t("lock.now")}</button>
+        )}
         <div className="sidebar-foot"><span>TermX</span><span>{isMac ? "⌘K" : "Ctrl+Shift+K"}</span></div>
       </aside>
 
@@ -82,7 +96,7 @@ export default function App() {
             {tabs.map((tab) => (
               <div key={tab.id} className={"tab" + (active === tab.id ? " on" : "")} onClick={() => setActive(tab.id)}
                 onMouseDown={(e) => { if (e.button === 1) { e.preventDefault(); closeTab(tab.id); } }}>
-                {tab.kind === "sftp" ? <FolderOpen size={14} /> : <span className={"dot " + tab.state} />}
+                {tab.kind === "sftp" ? <FolderOpen size={14} /> : tab.kind === "grid" ? <LayoutGrid size={14} /> : tab.kind === "run" ? <ListChecks size={14} /> : <span className={"dot " + tabState(tab, sessions)} />}
                 <span className="t">{tab.title}</span>
                 <button className="x" title={t("term.closeTab")} onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}><X size={13} /></button>
               </div>
@@ -95,12 +109,19 @@ export default function App() {
 
         <div className="content">
           {active === null && view === "hosts" && <HostsView />}
+          {active === null && view === "workspaces" && <WorkspacesView />}
+          {active === null && view === "workflows" && <WorkflowsView />}
+          {active === null && view === "overview" && <OverviewView />}
           {active === null && view === "keys" && <KeysView />}
           {active === null && view === "snippets" && <SnippetsView />}
           {active === null && view === "settings" && <SettingsView />}
-          {tabs.map((tab) => tab.kind === "term"
-            ? <TerminalView key={tab.id} tab={tab} visible={active === tab.id} />
-            : <SftpView key={tab.id} tab={tab} visible={active === tab.id} />)}
+          {tabs.map((tab) => {
+            const vis = active === tab.id;
+            if (tab.kind === "term") return <TerminalView key={tab.id} sid={tab.id} hostId={tab.hostId!} visible={vis} onClose={() => closeTab(tab.id)} />;
+            if (tab.kind === "grid") return <GridView key={tab.id} tab={tab} visible={vis} />;
+            if (tab.kind === "run") return <RunView key={tab.id} tab={tab} visible={vis} />;
+            return <SftpView key={tab.id} tab={tab} visible={vis} />;
+          })}
         </div>
       </div>
 
@@ -109,6 +130,7 @@ export default function App() {
       <Prompts />
       <DialogHost />
       <Toasts />
+      {vault.status.locked && <LockScreen />}
     </div>
   );
 }

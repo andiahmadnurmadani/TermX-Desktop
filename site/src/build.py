@@ -14,9 +14,12 @@ TREE = """termx/
 │   ├── src/ssh.rs        connections, jump hosts, shells, reconnect
 │   ├── src/sftp.rs       list, transfer, edit, progress, cancel
 │   ├── src/keys.rs       generate and import SSH keys
-│   ├── src/secrets.rs    AES-256-GCM + OS keychain
-│   ├── src/store.rs      vault.json, atomic writes
-│   └── tests/live.rs     integration test against a real sshd
+│   ├── src/secrets.rs    AES-256-GCM, keychain or master password
+│   ├── src/store.rs      SQLite, transactions, migrations
+│   ├── src/workflow.rs   multi-host engine, masking, cancel
+│   ├── src/overview.rs   agentless health probe
+│   ├── src/backup.rs     encrypted export / restore
+│   └── tests/live.rs     4 panes + workflows against a real sshd
 ├── src-tauri/            Tauri commands, prompt broker
 ├── src/                  React + TypeScript interface
 └── site/                 this website"""
@@ -26,6 +29,8 @@ cd TermX-Desktop
 npm install
 npx tauri dev      # run with hot reload
 npx tauri build    # installer for your OS"""
+
+H = {"hosts": 1125, "settings": 1125, "terminal": 795, "sftp": 795}
 
 def e(s): return html.escape(s, quote=True)
 
@@ -46,7 +51,7 @@ def page(lang):
     shots = ""
     for k, _ in t["s_tabs"]:
         for th in ("dark", "light"):
-            shots += f'<img class="shot {th}" data-scene="{k}" src="/assets/shots/{th}-{k}.webp" alt="" width="1920" height="{1125 if k in ("hosts","settings") else 795}" loading="lazy">'
+            shots += f'<img class="shot {th}" data-scene="{k}" src="/assets/shots/{th}-{k}.webp" alt="" width="1920" height="{H.get(k, 1200)}" loading="lazy">'
     caps = "".join(f'<p class="cap" data-scene="{k}">{e(v)}</p>' for k, v in t["s_caps"].items())
     plats = ""
     for pid, name, req, files in t["d_platforms"]:
@@ -113,8 +118,8 @@ def page(lang):
 </section>
 <section class="wrap hero-shot">
   <figure class="frame"><div class="chrome" aria-hidden="true"><i></i><i></i><i></i></div>
-    <img class="shot dark" src="/assets/shots/dark-terminal.webp" width="1920" height="795" alt="TermX terminal">
-    <img class="shot light" src="/assets/shots/light-terminal.webp" width="1920" height="795" alt="TermX terminal">
+    <img class="shot dark" src="/assets/shots/dark-grid.webp" width="1920" height="1200" alt="TermX 2×2 workspace">
+    <img class="shot light" src="/assets/shots/light-grid.webp" width="1920" height="1200" alt="TermX 2×2 workspace">
   </figure>
   <p class="fig">{e(t["frame_caption"])}</p>
 </section>
