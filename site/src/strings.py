@@ -2,12 +2,12 @@
 S = {
 "en": {
  "lang": "en", "html_lang": "en", "alt_lang": "id", "alt_label": "ID", "alt_href": "/id/", "self_href": "/",
- "title": "TermX — a free, open-source SSH client",
+ "title": "TermX — Connect. Automate. Operate.",
  "desc": "TermX is a free, open-source SSH client and operations workspace for macOS, Windows, Linux and Android. Four live terminals side by side, multi-host workflows, an encrypted local vault. No account, no subscription.",
  "nav_features": "Features", "nav_screens": "Screens", "nav_arch": "Architecture", "nav_download": "Download", "nav_github": "GitHub",
  "skip": "Skip to content",
  "eyebrow": "TermX 1.0 · macOS · Windows · Linux · Android",
- "h1": "SSH without the <em>subscription.</em>",
+ "h1": "Connect. Automate. <em>Operate.</em>",
  "lede": "TermX is a free, open-source SSH client for desktop and Android. Watch four servers at once, run the same steps across a fleet with a full audit trail, and keep every credential on your own machine, encrypted, with no account and no cloud in between.",
  "cta_dl": "Download", "cta_dl_for": "Download for {os}", "cta_src": "Source on GitHub",
  "hero_meta": "MIT licensed · about 5 MB on macOS · no account, no telemetry",
@@ -109,12 +109,12 @@ S = {
 
 "id": {
  "lang": "id", "html_lang": "id", "alt_lang": "en", "alt_label": "EN", "alt_href": "/", "self_href": "/id/",
- "title": "TermX — klien SSH gratis dan open source",
+ "title": "TermX — Connect. Automate. Operate.",
  "desc": "TermX adalah klien SSH dan ruang kerja operasi gratis dan open source untuk macOS, Windows, Linux, dan Android. Empat terminal berdampingan, workflow multi-server, brankas lokal terenkripsi. Tanpa akun, tanpa langganan.",
  "nav_features": "Fitur", "nav_screens": "Tampilan", "nav_arch": "Arsitektur", "nav_download": "Unduh", "nav_github": "GitHub",
  "skip": "Lompat ke konten",
  "eyebrow": "TermX 1.0 · macOS · Windows · Linux · Android",
- "h1": "SSH tanpa <em>langganan.</em>",
+ "h1": "Connect. Automate. <em>Operate.</em>",
  "lede": "TermX adalah klien SSH gratis dan open source untuk desktop dan Android. Pantau empat server sekaligus, jalankan langkah yang sama di banyak server dengan jejak audit lengkap, dan simpan semua kredensial di perangkat sendiri, terenkripsi, tanpa akun dan tanpa cloud di tengah.",
  "cta_dl": "Unduh", "cta_dl_for": "Unduh untuk {os}", "cta_src": "Kode sumber di GitHub",
  "hero_meta": "Lisensi MIT · sekitar 5 MB di macOS · tanpa akun, tanpa telemetri",
