@@ -179,6 +179,17 @@ def page(lang):
 '''
 
 def main():
+    # build next to the live folder, then swap, so the running server never sees a half-built site
+    final, DIST_ = DIST, DIST + ".next"
+    build(DIST_)
+    old = final + ".old"
+    if os.path.isdir(old): shutil.rmtree(old)
+    if os.path.isdir(final): os.rename(final, old)
+    os.rename(DIST_, final)
+    if os.path.isdir(old): shutil.rmtree(old)
+    print("built", final)
+
+def build(DIST):
     if os.path.isdir(DIST): shutil.rmtree(DIST)
     os.makedirs(DIST + "/id")
     shutil.copytree(os.path.join(ROOT, "assets"), DIST + "/assets")
@@ -188,7 +199,6 @@ def main():
     open(DIST + "/robots.txt", "w").write(f"User-agent: *\nAllow: /\nSitemap: {SITE}/sitemap.xml\n")
     open(DIST + "/sitemap.xml", "w").write(f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>{SITE}/</loc></url><url><loc>{SITE}/id/</loc></url></urlset>\n')
     open(DIST + "/404.html", "w").write('<!doctype html><meta charset="utf-8"><title>404 · TermX</title><meta http-equiv="refresh" content="0;url=/">')
-    print("built", DIST)
 
 if __name__ == "__main__":
     main()
