@@ -20,7 +20,13 @@ export interface Tab {
   runId?: string;
   /** log tabs: the recorded session */
   log?: SessionLog;
+  /** term tabs: 1 for the first tab of a host, 2 for the second, … */
+  seq?: number;
 }
+
+/** Tab titles follow the host's current label (so renaming a host renames its open tabs). */
+const hostTabTitle = (kind: Tab["kind"], label: string, seq = 1) =>
+  kind === "sftp" ? `${label} · SFTP` : seq > 1 ? `${label} (${seq})` : label;
 export interface SessionInfo { state: SessionState; message?: string }
 export interface Toast { id: string; text: string; kind: "info" | "error" | "ok" }
 
@@ -73,7 +79,14 @@ export const useStore = create<S>((set, get) => ({
 
   load: async () => {
     const [vault, info] = await Promise.all([api.vault(), get().info ? Promise.resolve(get().info!) : api.appInfo()]);
-    set({ vault, info });
+    const labels = new Map(vault.hosts.map((h) => [h.id, h.label]));
+    const tabs = get().tabs.map((tb) => {
+      if (tb.kind !== "term" && tb.kind !== "sftp") return tb;
+      const label = labels.get(tb.hostId);
+      const title = label == null ? tb.title : hostTabTitle(tb.kind, label, tb.seq);
+      return title === tb.title ? tb : { ...tb, title };
+    });
+    set({ vault, info, tabs });
   },
   setView: (view) => set({ view, active: null }),
   setActive: (active) => set({ active }),
@@ -82,7 +95,7 @@ export const useStore = create<S>((set, get) => ({
     const host = get().vault?.hosts.find((h) => h.id === hostId);
     if (!host) return;
     const n = get().tabs.filter((t) => t.hostId === hostId && t.kind === "term").length;
-    const tab: Tab = { id: uid(), kind: "term", hostId, title: n ? `${host.label} (${n + 1})` : host.label };
+    const tab: Tab = { id: uid(), kind: "term", hostId, seq: n + 1, title: hostTabTitle("term", host.label, n + 1) };
     set((s) => ({ tabs: [...s.tabs, tab], active: tab.id, sessions: { ...s.sessions, [tab.id]: { state: "connecting" } } }));
     // refresh "last connected" shortly after the connection is made
     setTimeout(() => get().load().catch(() => {}), 2500);
@@ -92,7 +105,7 @@ export const useStore = create<S>((set, get) => ({
     if (!host) return;
     const existing = get().tabs.find((t) => t.kind === "sftp" && t.hostId === hostId);
     if (existing) return set({ active: existing.id });
-    const tab: Tab = { id: uid(), kind: "sftp", hostId, title: `${host.label} · SFTP` };
+    const tab: Tab = { id: uid(), kind: "sftp", hostId, title: hostTabTitle("sftp", host.label) };
     set((s) => ({ tabs: [...s.tabs, tab], active: tab.id }));
   },
 

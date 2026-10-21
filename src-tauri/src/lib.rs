@@ -500,6 +500,9 @@ impl SessionSink for ChannelSink {
     fn state(&self, state: &str, message: Option<String>) {
         let _ = self.app.emit("session:state", serde_json::json!({ "id": self.id, "state": state, "message": message }));
     }
+    fn progress(&self, line: &str) {
+        let _ = self.app.emit("session:progress", serde_json::json!({ "id": self.id, "at": termx_core::model::now_ms(), "text": line }));
+    }
 }
 
 #[tauri::command]
@@ -523,6 +526,12 @@ async fn ssh_open(
 #[tauri::command]
 fn ssh_write(state: State<'_, AppState>, session_id: String, data: String) {
     state.mgr.control(&session_id, Ctl::Input(data.into_bytes()));
+}
+
+/// Answer a password prompt (sudo) in the session with the host's saved password.
+#[tauri::command]
+fn ssh_fill_password(state: State<'_, AppState>, session_id: String) -> CmdResult<()> {
+    state.mgr.fill_password(&session_id).map_err(err)
 }
 
 #[tauri::command]
@@ -757,6 +766,27 @@ fn config_import(state: State<'_, AppState>, path: String) -> CmdResult<usize> {
     Ok(n)
 }
 
+/// Keep the first window inside the monitor's work area (Windows taskbar, macOS Dock/menu bar):
+/// shrink it on small screens and center it in the usable space.
+fn fit_to_work_area(w: &tauri::WebviewWindow) {
+    let Ok(Some(m)) = w.current_monitor().map(|m| m.or_else(|| w.primary_monitor().ok().flatten())) else { return };
+    let wa = *m.work_area();
+    let (Ok(outer), Ok(inner)) = (w.outer_size(), w.inner_size()) else { return };
+    let margin = (12.0 * m.scale_factor()) as u32;
+    let max_w = wa.size.width.saturating_sub(margin * 2).max(400);
+    let max_h = wa.size.height.saturating_sub(margin * 2).max(300);
+    let (dw, dh) = (outer.width.saturating_sub(inner.width), outer.height.saturating_sub(inner.height));
+    let (ow, oh) = (outer.width.min(max_w), outer.height.min(max_h));
+    if ow < outer.width || oh < outer.height {
+        let (iw, ih) = (ow.saturating_sub(dw), oh.saturating_sub(dh));
+        let _ = w.set_min_size(Some(tauri::PhysicalSize::new(iw.min(860), ih.min(520))));
+        let _ = w.set_size(tauri::PhysicalSize::new(iw, ih));
+    }
+    let x = wa.position.x + (wa.size.width.saturating_sub(ow) / 2) as i32;
+    let y = wa.position.y + (wa.size.height.saturating_sub(oh) / 2) as i32;
+    let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -775,6 +805,9 @@ pub fn run() {
             let sftp = Sftp::new(mgr.clone());
             let engine = Engine::new(mgr.clone(), store.clone());
             app.manage(AppState { store, sb, mgr, sftp, engine, prompts, data_dir });
+            if let Some(w) = app.get_webview_window("main") {
+                fit_to_work_area(&w);
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -794,6 +827,7 @@ pub fn run() {
             key_install,
             ssh_open,
             ssh_write,
+            ssh_fill_password,
             ssh_resize,
             ssh_reconnect,
             ssh_close,

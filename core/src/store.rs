@@ -10,7 +10,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 const KEEP_LOGS: i64 = 1000;
 const KEEP_RUNS: i64 = 300;
 
@@ -275,11 +275,12 @@ impl Store {
     pub fn log_upsert(&self, l: &SessionLog) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO session_logs(id, host_id, host_label, username, hostname, port, started_at, connected_at, ended_at, status, message, reconnects, bytes, transcript)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
+            "INSERT INTO session_logs(id, host_id, host_label, username, hostname, port, started_at, connected_at, ended_at, status, message, reconnects, bytes, transcript, events)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
              ON CONFLICT(id) DO UPDATE SET connected_at = excluded.connected_at, ended_at = excluded.ended_at, status = excluded.status,
-               message = excluded.message, reconnects = excluded.reconnects, bytes = excluded.bytes, transcript = excluded.transcript",
-            params![l.id, l.host_id, l.host_label, l.username, l.hostname, l.port, l.started_at, l.connected_at, l.ended_at, l.status, l.message, l.reconnects, l.bytes as i64, l.transcript],
+               message = excluded.message, reconnects = excluded.reconnects, bytes = excluded.bytes, transcript = excluded.transcript,
+               events = excluded.events",
+            params![l.id, l.host_id, l.host_label, l.username, l.hostname, l.port, l.started_at, l.connected_at, l.ended_at, l.status, l.message, l.reconnects, l.bytes as i64, l.transcript, serde_json::to_string(&l.events)?],
         )?;
         Ok(())
     }
@@ -298,7 +299,7 @@ impl Store {
     pub fn logs_list(&self, limit: u32) -> Result<Vec<SessionLog>> {
         let conn = self.conn.lock().unwrap();
         let mut st = conn.prepare(
-            "SELECT id, host_id, host_label, username, hostname, port, started_at, connected_at, ended_at, status, message, reconnects, bytes, transcript
+            "SELECT id, host_id, host_label, username, hostname, port, started_at, connected_at, ended_at, status, message, reconnects, bytes, transcript, events
              FROM session_logs ORDER BY started_at DESC LIMIT ?1",
         )?;
         let it = st.query_map(params![limit], |r| {
@@ -317,6 +318,7 @@ impl Store {
                 reconnects: r.get(11)?,
                 bytes: r.get::<_, i64>(12)? as u64,
                 transcript: r.get(13)?,
+                events: serde_json::from_str(&r.get::<_, String>(14)?).unwrap_or_default(),
             })
         })?;
         Ok(it.collect::<rusqlite::Result<_>>()?)
@@ -446,6 +448,16 @@ fn migrate(conn: &mut Connection) -> Result<()> {
                 bytes INTEGER NOT NULL, transcript INTEGER NOT NULL);
             CREATE INDEX session_logs_started ON session_logs(started_at DESC);
             PRAGMA user_version = 2;
+            ",
+        )?;
+        tx.commit()?;
+    }
+    if version < 3 {
+        let tx = conn.transaction()?;
+        tx.execute_batch(
+            "
+            ALTER TABLE session_logs ADD COLUMN events TEXT NOT NULL DEFAULT '[]';
+            PRAGMA user_version = 3;
             ",
         )?;
         tx.commit()?;

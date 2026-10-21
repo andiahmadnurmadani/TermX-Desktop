@@ -14,6 +14,8 @@ Tauri 2 (Rust) + React + xterm.js. MIT licensed. No account, no cloud, no teleme
   - Risky commands and production hosts require an explicit confirmation.
 - **Overview**: an agentless health snapshot over SSH covering uptime, CPU, load, memory, disk and failed systemd units. Nothing is installed on the servers. Switch to **Live** to refresh every 5 s – 1 min with CPU sparklines.
 - **Logs**: every terminal session is listed with host, start time, duration, data transferred, reconnects and errors. Optionally, the terminal output is recorded so you can replay, search and export it (`.txt` / `.log`).
+- **Connection log**: while connecting, every step is shown live (DNS, TCP, host key, authentication method, PTY, shell), like Termius. Failed connects keep the log so you can see where it stopped; it is also saved with the session in Logs.
+- **sudo password fill**: when a terminal shows `[sudo] password for …`, one click types the password saved for that host (it never passes through the web UI). Optionally fill it automatically, once per prompt.
 - **Hosts with OS icons**: the remote OS is detected on first connect (Ubuntu, Debian, macOS, Windows, Fedora, Alpine, Raspberry Pi OS, …).
 - **Personalisation**: app font, interface size (90–150 %), terminal font, weight, letter spacing, line height, cursor, themes and accent colour.
 - **Auto-update**: TermX checks GitHub Releases on start and installs signed updates in place with one click.
@@ -44,7 +46,13 @@ Tests:
     npx tauri build            # current OS
 
 GitHub Actions (`.github/workflows/release.yml`) builds macOS (arm64/x64), Linux (deb/AppImage) and Windows (msi/exe).
-Builds are unsigned, so on macOS right-click → Open the first time.
+Builds are not notarized (no paid Apple Developer ID). On macOS the app is ad-hoc signed; the first time:
+
+1. Drag **TermX** to Applications and open it. If macOS says it "can't be opened" or "is damaged",
+2. open **System Settings → Privacy & Security** and click **Open Anyway**, or run once in Terminal:
+   `xattr -dr com.apple.quarantine /Applications/TermX.app`
+
+After that it opens normally and updates itself in place.
 
 ## Layout
 

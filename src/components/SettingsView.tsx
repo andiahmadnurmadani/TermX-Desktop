@@ -240,6 +240,7 @@ export function SettingsView() {
           </div>
           <Row title={t("set.cursorBlink")}><Switch on={s.cursorBlink} onChange={(b) => saveSettings({ cursorBlink: b })} /></Row>
           <Row title={t("set.copyOnSelect")}><Switch on={s.copyOnSelect} onChange={(b) => saveSettings({ copyOnSelect: b })} /></Row>
+          <Row title={t("set.sudoAutofill")} hint={t("set.sudoAutofillHint")}><Switch on={!!s.sudoAutofill} onChange={(b) => saveSettings({ sudoAutofill: b })} /></Row>
         </div>
       </div>
 

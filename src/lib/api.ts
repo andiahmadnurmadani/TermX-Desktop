@@ -19,12 +19,14 @@ export interface Settings {
   copyOnSelect: boolean; language: "en" | "id"; accent: string; autoLockMin: number;
   uiFont: string; uiScale: number; fontWeight: number; fontWeightBold: number; letterSpacing: number;
   sessionLogs: boolean; overviewLive: boolean; overviewInterval: number; checkUpdates: boolean;
+  sudoAutofill: boolean;
 }
 export interface SessionLog {
   id: string; hostId: string; hostLabel: string; username: string; hostname: string; port: number;
   startedAt: number; connectedAt: number; endedAt: number; status: SessionState; message: string;
-  reconnects: number; bytes: number; transcript: boolean;
+  reconnects: number; bytes: number; transcript: boolean; events: LogEvent[];
 }
+export interface LogEvent { at: number; text: string }
 export type Layout = "1" | "2v" | "2h" | "4";
 export interface Workspace { id: string; name: string; layout: Layout; colSplit: number; rowSplit: number; panes: (string | null)[]; createdAt: number }
 export interface WorkflowParam { name: string; label: string; default: string; secret: boolean }
@@ -76,6 +78,7 @@ export const api = {
   sshOpen: (sessionId: string, hostId: string, cols: number, rows: number, data: Channel<ArrayBuffer>) =>
     invoke<void>("ssh_open", { sessionId, hostId, cols, rows, data }),
   sshWrite: (sessionId: string, data: string) => invoke<void>("ssh_write", { sessionId, data }),
+  sshFillPassword: (sessionId: string) => invoke<void>("ssh_fill_password", { sessionId }),
   sshResize: (sessionId: string, cols: number, rows: number) => invoke<void>("ssh_resize", { sessionId, cols, rows }),
   sshReconnect: (sessionId: string) => invoke<void>("ssh_reconnect", { sessionId }),
   sshClose: (sessionId: string) => invoke<void>("ssh_close", { sessionId }),

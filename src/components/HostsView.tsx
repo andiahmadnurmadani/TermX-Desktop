@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Copy, FolderOpen, FolderPlus, LayoutGrid, Pencil, Plus, Search, Server, Terminal, Trash2, X } from "lucide-react";
+import { Clock, Copy, FolderOpen, FolderPlus, LayoutGrid, Pencil, Plus, Search, Server, Terminal, Trash2, X } from "lucide-react";
 import { api, type Env, type Host } from "../lib/api";
 import { useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
@@ -20,6 +20,7 @@ export function HostCard({ host, i }: { host: Host; i: number }) {
   const t = useT();
   const { openTerm, openSftp, openHostDialog, openHostInGrid, run } = useStore();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const live = useStore((s) => s.tabs.some((tb) => tb.kind === "term" && tb.hostId === host.id && s.sessions[tb.id]?.state === "connected"));
 
   const duplicate = () => run(api.hostSave({ ...host, id: crypto.randomUUID(), label: host.label + " copy", lastConnectedAt: 0, createdAt: Date.now() }, null), undefined);
   const remove = async () => { if (await confirmDialog(t("hosts.deleteConfirm"))) run(api.hostDelete(host.id)); };
@@ -36,21 +37,26 @@ export function HostCard({ host, i }: { host: Host; i: number }) {
   return (
     <>
       <div
-        className="card" role="button" tabIndex={0} title={ago(host.lastConnectedAt, t("hosts.never"))} style={{ ["--hc" as string]: hostColor(host.color), animationDelay: `${Math.min(i, 12) * 18}ms` }}
+        className={"card host-card" + (live ? " live" : "")} role="button" tabIndex={0} style={{ ["--hc" as string]: hostColor(host.color), animationDelay: `${Math.min(i, 12) * 18}ms` }}
         onClick={() => openTerm(host.id)}
         onKeyDown={(e) => e.key === "Enter" && openTerm(host.id)}
         onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); }}
       >
-        <OsIcon host={host} />
-        <div className="meta">
-          <div className="name">{host.label}<EnvBadge env={host.environment} /></div>
-          <div className="sub">{host.username}@{host.hostname}{host.port !== 22 ? `:${host.port}` : ""}</div>
-          {(host.tags.length > 0 || host.osName) && (
-            <div className="tags">
-              {host.osName && <span className="tag">{host.osName}</span>}
-              {host.tags.slice(0, 3).map((x) => <span key={x} className="tag">{x}</span>)}
-            </div>
-          )}
+        <div className="hc-top">
+          <OsIcon host={host} size={40} />
+          <div className="meta">
+            <div className="name"><span className="nm">{host.label}</span><EnvBadge env={host.environment} /></div>
+            <div className="sub">{host.username}@{host.hostname}{host.port !== 22 ? `:${host.port}` : ""}</div>
+          </div>
+        </div>
+        <div className="hc-foot">
+          <div className="tags">
+            {host.osName && <span className="tag os">{host.osName}</span>}
+            {host.tags.slice(0, 3).map((x) => <span key={x} className="tag">{x}</span>)}
+            {host.tags.length > 3 && <span className="tag">+{host.tags.length - 3}</span>}
+          </div>
+          {live ? <span className="hc-when live"><i />{t("hosts.live")}</span>
+            : <span className="hc-when" title={host.lastConnectedAt ? new Date(host.lastConnectedAt).toLocaleString() : undefined}><Clock size={11} />{ago(host.lastConnectedAt, t("hosts.neverShort"))}</span>}
         </div>
         <div className="acts" onClick={(e) => e.stopPropagation()}>
           <button className="icon-btn" title={t("hosts.openInWorkspace")} onClick={() => openHostInGrid(host.id)}><LayoutGrid size={15} /></button>

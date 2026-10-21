@@ -169,6 +169,15 @@ pub struct SessionLog {
     pub bytes: u64,
     /// A terminal transcript was recorded for this session.
     pub transcript: bool,
+    /// Connection setup steps (connects and reconnects, capped).
+    pub events: Vec<LogEvent>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LogEvent {
+    pub at: i64,
+    pub text: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -213,6 +222,8 @@ pub struct Settings {
     /// Seconds between live Overview refreshes.
     pub overview_interval: u32,
     pub check_updates: bool,
+    /// Answer `[sudo] password for …` prompts with the host's password without asking.
+    pub sudo_autofill: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -238,6 +249,7 @@ impl Default for Settings {
             overview_live: false,
             overview_interval: 10,
             check_updates: true,
+            sudo_autofill: false,
         }
     }
 }

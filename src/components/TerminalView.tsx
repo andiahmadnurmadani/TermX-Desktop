@@ -6,9 +6,9 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowDown, ArrowUp, FolderOpen, Maximize2, Minimize2, RefreshCw, Search, TerminalSquare, X, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, CircleAlert, FolderOpen, KeyRound, Maximize2, Minimize2, RefreshCw, Search, TerminalSquare, X, Zap } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
-import { api, Channel, errText, events, type Settings } from "../lib/api";
+import { api, Channel, errText, events, type LogEvent, type Settings } from "../lib/api";
 import { termHandles, useStore, type SessionInfo } from "../lib/store";
 import { terminalTheme } from "../lib/themes";
 import { useResolvedDark } from "../lib/theme";
@@ -16,6 +16,21 @@ import { useT } from "../lib/i18n";
 import { isMac, isMod } from "../lib/util";
 import { ContextMenu } from "./ui";
 import { EnvBadge } from "./HostsView";
+import { OsIcon } from "../lib/os";
+
+// eslint-disable-next-line no-control-regex
+const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-B]|\x1b[=>78]/g;
+
+/** Is the terminal sitting at a password prompt? "sudo" prompts may be answered automatically. */
+export function detectPrompt(tail: string): "sudo" | "password" | null {
+  const line = (tail.replace(ANSI, "").split(/\r\n|\n|\r/).pop() ?? "").replace(/\s+$/, " ");
+  if (line.length > 140) return null;
+  if (/^\[sudo\][^:]*:\s*$/.test(line) || /^doas \([^)]*\) password:\s*$/.test(line)) return "sudo";
+  // "user@other-host's password:" belongs to a different server: never offer this host's password
+  if (/'s password:\s*$/.test(line)) return null;
+  if (/^\s*(password|passwort|kata sandi|mot de passe|contraseña)( for [^\s:]+)?\s*:\s*$/i.test(line)) return "password";
+  return null;
+}
 
 const fontStack = (f: string) => `"${f}", "JetBrains Mono", "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace`;
 
@@ -47,7 +62,13 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
   const host = useStore((s) => s.vault?.hosts.find((h) => h.id === tab.hostId));
   const snippets = useStore((s) => s.vault?.snippets ?? []);
   const session: SessionInfo = useStore((s) => s.sessions[sid]) ?? { state: "connecting" };
-  const { patchSession, openSftp, toast } = useStore();
+  const { patchSession, openSftp, toast, saveSettings } = useStore();
+  const [steps, setSteps] = useState<LogEvent[]>([]);
+  const [prompt, setPrompt] = useState<"sudo" | "password" | null>(null);
+  const autoBlock = useRef(false);
+  const hostRef = useRef(host);
+  hostRef.current = host;
+  const logRef = useRef<HTMLDivElement>(null);
   const focusedRef = useRef(pane?.focused ?? true);
   focusedRef.current = pane?.focused ?? true;
   const dark = useResolvedDark();
@@ -110,7 +131,11 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
         return true;
       });
 
-      term.onData((d) => { api.sshWrite(tab.id, d).catch(() => {}); });
+      term.onData((d) => {
+        autoBlock.current = false;
+        setPrompt(null);
+        api.sshWrite(tab.id, d).catch(() => {});
+      });
       term.onResize(({ cols, rows }) => { api.sshResize(tab.id, cols, rows).catch(() => {}); });
 
       let selTimer: number | undefined;
@@ -132,12 +157,41 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
         if (p.id !== tab.id) return;
         patchSession(tab.id, { state: p.state, message: p.message ?? undefined });
         if (p.state === "connected") setEverConnected(true);
+        if ((p.state === "connecting" || p.state === "reconnecting") && !p.message) setSteps([]);
+        if (p.state !== "connected") setPrompt(null);
       });
       cleanups.push(un);
+      const unp = await events.on<{ id: string; at: number; text: string }>("session:progress", (p) => {
+        if (p.id !== tab.id) return;
+        setSteps((s) => (s.length > 200 ? s : [...s, { at: p.at, text: p.text }]));
+      });
+      cleanups.push(unp);
       if (disposed) return;
 
       const ch = new Channel<ArrayBuffer>();
-      ch.onmessage = (buf) => term.write(new Uint8Array(buf));
+      // watch the end of the output for password prompts (sudo auto-fill)
+      const dec = new TextDecoder();
+      let tail = "";
+      let check = 0;
+      ch.onmessage = (buf) => {
+        const bytes = new Uint8Array(buf);
+        term.write(bytes);
+        tail = (tail + dec.decode(bytes, { stream: true })).slice(-400);
+        window.clearTimeout(check);
+        check = window.setTimeout(() => {
+          const kind = detectPrompt(tail);
+          if (!kind || hostRef.current?.auth !== "password") { setPrompt(null); return; }
+          if (kind === "sudo" && settingsRef.current.sudoAutofill && !autoBlock.current) {
+            // once per prompt series: a wrong saved password must not be retried in a loop
+            autoBlock.current = true;
+            setPrompt(null);
+            api.sshFillPassword(tab.id).catch(() => setPrompt(kind));
+            return;
+          }
+          setPrompt(kind);
+        }, 60);
+      };
+      cleanups.push(() => window.clearTimeout(check));
       try {
         await api.sshOpen(tab.id, tab.hostId, term.cols, term.rows, ch);
       } catch (e) {
@@ -190,6 +244,12 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
     if (dir === "next") searchRef.current?.findNext(text, opts); else searchRef.current?.findPrevious(text, opts);
   };
 
+  const fillPassword = () => {
+    setPrompt(null);
+    api.sshFillPassword(tab.id).then(() => termRef.current?.focus()).catch((e) => toast(errText(e), "error"));
+  };
+  useEffect(() => { const el = logRef.current; if (el) el.scrollTop = el.scrollHeight; }, [steps]);
+
   const state = session.state;
   const overlay = state === "failed" || state === "ended" || (state === "connecting" && !everConnected);
 
@@ -234,15 +294,52 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
             <div className="spinner" style={{ width: 14, height: 14 }} />{t("term.reconnecting")}
           </div>
         )}
+        {prompt && !overlay && (
+          <div className="sudo-bar" role="status">
+            <KeyRound size={15} className="ic" />
+            <span className="txt">{t(prompt === "sudo" ? "term.sudoAsk" : "term.pwAsk")}</span>
+            <button className="btn primary sm" onClick={fillPassword}>{t("term.fillPw")}</button>
+            {prompt === "sudo" && (
+              <label className="chk" title={t("set.sudoAutofillHint")}>
+                <input type="checkbox" checked={!!settings.sudoAutofill} onChange={(e) => saveSettings({ sudoAutofill: e.target.checked })} />{t("term.autoFill")}
+              </label>
+            )}
+            <button className="icon-btn" title={t("common.close")} onClick={() => { setPrompt(null); termRef.current?.focus(); }}><X size={14} /></button>
+          </div>
+        )}
         {overlay && (
           <div className="overlay-msg">
-            <div className="overlay-card">
-              {state === "connecting" ? <div className="spinner" /> : <TerminalSquare size={26} color="var(--danger)" />}
-              <div style={{ fontWeight: 600 }}>{t(state === "connecting" ? "term.connecting" : state === "ended" ? "term.ended" : "term.failed")}</div>
+            <div className={"overlay-card conn" + (state === "ended" ? " compact" : "")}>
+              {host && (
+                <div className="conn-head">
+                  <OsIcon host={host} size={36} />
+                  <div className="conn-who"><b>{host.label}</b><small>{host.username}@{host.hostname}{host.port !== 22 ? `:${host.port}` : ""}</small></div>
+                </div>
+              )}
+              <div className={"conn-status " + state}>
+                {state === "connecting" ? <span className="mini-spin" /> : state === "ended" ? <TerminalSquare size={16} /> : <CircleAlert size={16} />}
+                <span>{t(state === "connecting" ? "term.connecting" : state === "ended" ? "term.ended" : "term.failed")}</span>
+              </div>
+              {state === "connecting" && <div className="conn-progress"><i style={{ width: `${Math.min(94, 6 + steps.length * 6.5)}%` }} /></div>}
               {session.message && state !== "connecting" && <div className="msg">{session.message}</div>}
+              {state !== "ended" && steps.length > 0 && (
+                <div className="conn-log" ref={logRef} aria-label={t("term.connLog")}>
+                  {steps.map((st, i) => {
+                    const err = st.text.startsWith("Error") || st.text.includes(" failed") || st.text.includes("rejected");
+                    const last = i === steps.length - 1 && state === "connecting";
+                    return (
+                      <div key={i} className={"step" + (err ? " err" : "") + (last ? " cur" : "")}>
+                        <span className="ts">{((st.at - steps[0].at) / 1000).toFixed(2)}s</span>
+                        <span className="si">{last ? <span className="mini-spin" /> : err ? <X size={12} /> : <Check size={12} />}</span>
+                        <span className="tx">{st.text}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               {state !== "connecting" && (
-                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                  <button className="btn primary" onClick={() => { patchSession(tab.id, { state: "connecting" }); api.sshReconnect(tab.id).catch((e) => toast(errText(e), "error")); }}><RefreshCw size={14} />{t("term.reconnect")}</button>
+                <div className="conn-acts">
+                  <button className="btn primary" onClick={() => { setSteps([]); patchSession(tab.id, { state: "connecting" }); api.sshReconnect(tab.id).catch((e) => toast(errText(e), "error")); }}><RefreshCw size={14} />{t("term.reconnect")}</button>
                   <button className="btn" onClick={onClose}>{t(pane ? "ws.closePane" : "term.closeTab")}</button>
                 </div>
               )}

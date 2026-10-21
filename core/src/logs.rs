@@ -1,6 +1,6 @@
 //! Session history ("Logs"): one [`SessionLog`] row per terminal session, plus an optional raw
 //! transcript of everything the server sent, kept as `logs/<id>.log` next to the database.
-use crate::model::{now_ms, Host, SessionLog};
+use crate::model::{now_ms, Host, LogEvent, SessionLog};
 use crate::ssh::SessionSink;
 use crate::store::Store;
 use std::fs::File;
@@ -8,6 +8,9 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+/// Connection steps kept per log.
+const MAX_EVENTS: usize = 200;
 
 /// Transcripts stop growing past this size (the session itself keeps running).
 pub const MAX_TRANSCRIPT: u64 = 20 * 1024 * 1024;
@@ -147,6 +150,17 @@ impl SessionSink for LoggingSink {
         }
         self.inner.state(state, message);
     }
+
+    fn progress(&self, line: &str) {
+        {
+            let mut r = self.rec.lock().unwrap();
+            if r.log.events.len() < MAX_EVENTS {
+                r.log.events.push(LogEvent { at: now_ms(), text: line.to_string() });
+            }
+            // saved with the next state change; failures are always followed by one
+        }
+        self.inner.progress(line);
+    }
 }
 
 impl Drop for LoggingSink {
@@ -240,6 +254,7 @@ mod tests {
         let host = Host { id: "h1".into(), label: "web".into(), hostname: "10.0.0.1".into(), username: "root".into(), ..Default::default() };
         let sink = LoggingSink::new(Arc::new(Null), store.clone(), "tab/1", &host, true);
         sink.state("connecting", None);
+        sink.progress("Resolving \"10.0.0.1\"");
         sink.state("connected", None);
         sink.output(b"hello\r\n".to_vec());
         sink.state("reconnecting", Some("lost".into()));
@@ -253,6 +268,8 @@ mod tests {
         assert_eq!(l.status, "ended");
         assert_eq!(l.reconnects, 1);
         assert_eq!(l.bytes, 7);
+        assert_eq!(l.events.len(), 1);
+        assert_eq!(l.events[0].text, "Resolving \"10.0.0.1\"");
         assert!(l.transcript && l.connected_at > 0 && l.ended_at > 0);
         assert!(id.starts_with("tab1-"));
         let p = transcript_path(&store, &id).unwrap();

@@ -71,6 +71,12 @@ A single read-only POSIX script runs via `sh -s`. It reads procfs on Linux and s
 
 `logs::LoggingSink` wraps the UI sink of every shell session. It writes one `session_logs` row per session (status, connect/end time, reconnects, bytes) on each state change, and, when *Record terminal output* is on, appends the raw server output to `logs/<id>.log`. Transcripts are not encrypted; turning recording off only stops new recordings.
 
+Connection setup steps come from `ssh.rs` through `SessionSink::progress` (a `Prog` callback threaded through `connection_for_p` → `connect` → `tcp_connect` / `ClientHandler::check_server_key` / `authenticate`, then `open_channel`). The app emits them as `session:progress`; `LoggingSink` also stores up to 200 of them in `session_logs.events` (JSON, schema v3).
+
+## sudo password fill
+
+The terminal watches the end of the output for a password prompt. `Manager::fill_password(session_id)` looks up the session's own host and types its saved (or entered-this-run) password into that session, so the secret never reaches the webview. Automatic fill (setting `sudoAutofill`) only answers `[sudo] …:` / `doas (…) password:` prompts, once until the user types again, and never `user@host's password:` prompts that belong to another server.
+
 ## Updates
 
 Releases are built by CI (`tauri-action`) with `createUpdaterArtifacts`, signed with the updater key (`TAURI_SIGNING_PRIVATE_KEY` secret) and published with a `latest.json`. The app checks `releases/latest/download/latest.json`, verifies the signature with the public key in `tauri.conf.json`, installs and relaunches.

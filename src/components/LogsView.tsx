@@ -3,7 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { ArrowDown, ArrowUp, Download, FileText, RefreshCw, ScrollText, Search, Terminal as TermIcon, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Download, FileText, ListTree, RefreshCw, ScrollText, Search, Terminal as TermIcon, Trash2, X } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 import { api, errText, type SessionLog } from "../lib/api";
 import { useStore, type Tab } from "../lib/store";
@@ -118,7 +118,7 @@ export function LogsView() {
               const end = l.endedAt || (isOpen(l) ? now : l.startedAt);
               const from = l.connectedAt || l.startedAt;
               return (
-                <div key={l.id} className={"log-row" + (l.transcript ? " clickable" : "")} onClick={() => l.transcript && openLog(l)}>
+                <div key={l.id} className={"log-row" + (l.transcript || l.events?.length ? " clickable" : "")} onClick={() => (l.transcript || l.events?.length) && openLog(l)}>
                   <OsIcon host={{ osId: host?.osId ?? null, osName: host?.osName ?? null }} size={32} />
                   <div className="log-main">
                     <div className="log-name"><b>{l.hostLabel}</b><span className="mono sub">{l.username}@{l.hostname}{l.port !== 22 ? `:${l.port}` : ""}</span></div>
@@ -132,7 +132,8 @@ export function LogsView() {
                     </div>
                   </div>
                   <div className="log-acts" onClick={(e) => e.stopPropagation()}>
-                    {l.transcript && <button className="btn sm" onClick={() => openLog(l)}><FileText size={13} />{t("logs.view")}</button>}
+                    {l.transcript ? <button className="btn sm" onClick={() => openLog(l)}><FileText size={13} />{t("logs.view")}</button>
+                      : l.events?.length ? <button className="btn sm" onClick={() => openLog(l)}><ListTree size={13} />{t("logs.connLog")}</button> : null}
                     {l.transcript && <button className="icon-btn" title={t("logs.export")} onClick={() => exportLog(l, true, toast, t("logs.exported"))}><Download size={14} /></button>}
                     {host && <button className="icon-btn" title={t("hosts.connect")} onClick={() => openTerm(host.id)}><TermIcon size={14} /></button>}
                     {!isOpen(l) && <button className="icon-btn danger" title={t("common.delete")} onClick={() => del(l.id)}><Trash2 size={14} /></button>}
@@ -161,10 +162,13 @@ export function LogTabView({ tab, visible }: { tab: Tab; visible: boolean }) {
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(true);
   const [size, setSize] = useState(0);
+  const events = log.events ?? [];
+  const [showSteps, setShowSteps] = useState(!log.transcript || log.status === "failed");
 
   const load = useCallback(async () => {
     const term = termRef.current;
     if (!term) return;
+    if (!log.transcript) { setBusy(false); return; }
     setBusy(true);
     try {
       const buf = new Uint8Array(await api.logTranscript(log.id));
@@ -173,7 +177,7 @@ export function LogTabView({ tab, visible }: { tab: Tab; visible: boolean }) {
       term.write(buf, () => term.scrollToBottom());
     } catch (e) { toast(errText(e), "error"); }
     setBusy(false);
-  }, [log.id, toast]);
+  }, [log.id, log.transcript, toast]);
 
   useEffect(() => {
     const s = useStore.getState().vault!.settings;
@@ -214,11 +218,26 @@ export function LogTabView({ tab, visible }: { tab: Tab; visible: boolean }) {
         </div>
         <button className="icon-btn" title={t("logs.prev")} onClick={() => find(true)}><ArrowUp size={14} /></button>
         <button className="icon-btn" title={t("logs.next")} onClick={() => find(false)}><ArrowDown size={14} /></button>
+        {events.length > 0 && <button className={"btn sm" + (showSteps ? " on" : "")} onClick={() => setShowSteps(!showSteps)}><ListTree size={13} />{t("logs.connLog")}</button>}
         <button className="icon-btn" title={t("common.refresh")} onClick={load}>{busy ? <span className="mini-spin" /> : <RefreshCw size={14} />}</button>
         <button className="btn sm" onClick={() => exportLog(log, true, toast, t("logs.exported"))}><Download size={13} />.txt</button>
         <button className="btn sm" onClick={() => exportLog(log, false, toast, t("logs.exported"))}><Download size={13} />.log</button>
       </div>
-      <div className="log-term" style={{ background: bg }}><div ref={mount} className="log-mount" /></div>
+      {showSteps && events.length > 0 && (
+        <div className="conn-log log-steps">
+          {events.map((st, i) => {
+            const err = st.text.startsWith("Error") || st.text.includes(" failed") || st.text.includes("rejected");
+            return (
+              <div key={i} className={"step" + (err ? " err" : "")}>
+                <span className="ts">{new Date(st.at).toLocaleTimeString()}</span>
+                <span className="si">{err ? <X size={12} /> : <Check size={12} />}</span>
+                <span className="tx">{st.text}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div className="log-term" style={{ background: bg, display: log.transcript ? undefined : "none" }}><div ref={mount} className="log-mount" /></div>
     </div>
   );
 }

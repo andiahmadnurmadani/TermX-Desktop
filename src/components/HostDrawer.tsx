@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronRight, Trash2 } from "lucide-react";
+import { ChevronRight, Plug, Trash2 } from "lucide-react";
 import { api, errText, type Env, type Host } from "../lib/api";
 import { useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
@@ -13,7 +13,7 @@ const blank = (): Partial<Host> => ({
 
 export function HostDrawer() {
   const t = useT();
-  const { vault, hostDialog, closeHostDialog, load, toast, run } = useStore();
+  const { vault, hostDialog, closeHostDialog, load, toast, run, openTerm } = useStore();
   const existing = useMemo(() => vault?.hosts.find((h) => h.id === hostDialog?.hostId), [vault, hostDialog]);
   const [h, setH] = useState<Partial<Host>>(() => (existing ? { ...existing } : blank()));
   const [password, setPassword] = useState("");
@@ -25,7 +25,8 @@ export function HostDrawer() {
   const groups = vault?.groups ?? [];
   const others = (vault?.hosts ?? []).filter((x) => x.id !== h.id);
 
-  const save = async () => {
+  /** Save, then (connect=true) open a terminal right away. */
+  const save = async (connect = false) => {
     if (!h.hostname?.trim() || !h.username?.trim()) return toast(t("host.required"), "error");
     setBusy(true);
     try {
@@ -35,6 +36,7 @@ export function HostDrawer() {
       await api.hostSave(payload, h.auth === "password" && password ? password : null);
       await load();
       closeHostDialog();
+      if (connect && h.id) openTerm(h.id);
     } catch (e) { toast(errText(e), "error"); }
     setBusy(false);
   };
@@ -42,14 +44,24 @@ export function HostDrawer() {
     if (!existing) return;
     if (await confirmDialog(t("hosts.deleteConfirm"))) { await run(api.hostDelete(existing.id)); closeHostDialog(); }
   };
-  const submit = (e: React.FormEvent) => { e.preventDefault(); save(); };
+  const submit = (e: React.FormEvent) => { e.preventDefault(); save(!existing); };
 
   return (
     <Drawer title={existing ? t("host.titleEdit") : t("host.titleNew")} onClose={closeHostDialog}
       footer={<>
         {existing && <button className="btn danger" style={{ marginRight: "auto" }} onClick={remove}><Trash2 size={14} />{t("common.delete")}</button>}
         <button className="btn" onClick={closeHostDialog}>{t("common.cancel")}</button>
-        <button className="btn primary" disabled={busy} onClick={save}>{t("common.save")}</button>
+        {existing ? (
+          <>
+            <button className="btn" disabled={busy} onClick={() => save(true)}><Plug size={14} />{t("host.saveConnect")}</button>
+            <button className="btn primary" disabled={busy} onClick={() => save()}>{t("common.save")}</button>
+          </>
+        ) : (
+          <>
+            <button className="btn" disabled={busy} onClick={() => save()}>{t("common.save")}</button>
+            <button className="btn primary" disabled={busy} onClick={() => save(true)}><Plug size={14} />{t("host.connect")}</button>
+          </>
+        )}
       </>}>
       <form onSubmit={submit} className="stack">
         <Field label={t("host.hostname")}><input className="input" autoFocus={!existing} value={h.hostname ?? ""} placeholder="192.168.1.10" spellCheck={false} onChange={(e) => set("hostname", e.target.value)} /></Field>

@@ -24,6 +24,7 @@ impl Ui for TrustUi {
 struct Sink {
     out: Mutex<Vec<u8>>,
     states: Mutex<Vec<String>>,
+    steps: Mutex<Vec<String>>,
 }
 impl SessionSink for Sink {
     fn output(&self, b: Vec<u8>) {
@@ -31,6 +32,9 @@ impl SessionSink for Sink {
     }
     fn state(&self, s: &str, _m: Option<String>) {
         self.states.lock().unwrap().push(s.to_string());
+    }
+    fn progress(&self, l: &str) {
+        self.steps.lock().unwrap().push(l.to_string());
     }
 }
 
@@ -55,6 +59,7 @@ async fn live_shell_exec_sftp() {
     assert_eq!(store.read(|v| v.known_hosts.len()), 1, "host key should be remembered");
 
     // shell
+    mgr.disconnect_host(&hid).await; // fresh connect so every setup step is reported
     let sink = Arc::new(Sink::default());
     let sid = "s1".to_string();
     mgr.open_shell(sid.clone(), &hid, 100, 30, None, sink.clone()).unwrap();
@@ -66,6 +71,19 @@ async fn live_shell_exec_sftp() {
     println!("---- shell output ----\n{screen}\n----");
     assert!(screen.contains("hello-42"));
     assert!(sink.states.lock().unwrap().contains(&"connected".to_string()));
+    let steps = sink.steps.lock().unwrap().clone();
+    println!("steps: {steps:#?}");
+    for want in ["Resolving", "TCP connection", "Host key matches", "Authentication succeeded", "Requesting PTY", "Connected"] {
+        assert!(steps.iter().any(|s| s.contains(want)), "missing step {want}");
+    }
+    // saved password typed into a prompt (as for sudo) without the UI ever seeing it
+    mgr.control(&sid, Ctl::Input(b"read -s -p 'pw: ' X; echo; echo got-${#X}\r".to_vec()));
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    mgr.fill_password(&sid).unwrap();
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    let screen = String::from_utf8_lossy(&sink.out.lock().unwrap()).to_string();
+    assert!(screen.contains(&format!("got-{}", pass.len())), "password fill failed");
+    assert!(!screen.contains(&pass));
     mgr.control(&sid, Ctl::Close);
 
     // OS detection ran in the background
