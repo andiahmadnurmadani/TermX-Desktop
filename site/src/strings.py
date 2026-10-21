@@ -94,7 +94,7 @@ S = {
  ],
  "d_notes_t": "First launch, honestly",
  "d_notes": [
-  ("macOS", "Not notarized yet. Right-click the app, choose Open, confirm once. Or run <code>xattr -dr com.apple.quarantine /Applications/TermX.app</code>."),
+  ("macOS", "Not notarized yet. If macOS blocks the first launch, open System Settings → Privacy &amp; Security and click <b>Open Anyway</b>. Or run <code>xattr -dr com.apple.quarantine /Applications/TermX.app</code>."),
   ("Windows", "SmartScreen may warn about an unknown publisher. Choose More info, then Run anyway."),
   ("Linux", "<code>chmod +x TermX*.AppImage</code>, then run it. The .deb and .rpm install normally."),
   ("Android", "Allow installs from this source when asked. New versions install over old ones and keep your data."),
@@ -201,7 +201,7 @@ S = {
  ],
  "d_notes_t": "Peluncuran pertama, apa adanya",
  "d_notes": [
-  ("macOS", "Belum dinotarisasi. Klik kanan aplikasi, pilih Open, konfirmasi sekali. Atau jalankan <code>xattr -dr com.apple.quarantine /Applications/TermX.app</code>."),
+  ("macOS", "Belum dinotarisasi. Jika macOS memblokir saat pertama dibuka, buka System Settings → Privacy &amp; Security lalu klik <b>Open Anyway</b>. Atau jalankan <code>xattr -dr com.apple.quarantine /Applications/TermX.app</code>."),
   ("Windows", "SmartScreen mungkin memperingatkan penerbit tidak dikenal. Pilih More info, lalu Run anyway."),
   ("Linux", "<code>chmod +x TermX*.AppImage</code>, lalu jalankan. File .deb dan .rpm dipasang seperti biasa."),
   ("Android", "Izinkan instalasi dari sumber ini saat diminta. Versi baru terpasang di atas yang lama dan data tetap aman."),
