@@ -147,7 +147,7 @@ export function HostsView() {
       ) : filtered.length === 0 ? (
         <EmptyState icon={<Search size={24} />} title={t("hosts.noresults")} body="" />
       ) : (
-        <>
+        <div className="hosts-body">
           {recent.length > 0 && (
             <>
               <div className="group-title">{t("hosts.recent")}<span className="line" /></div>
@@ -160,7 +160,7 @@ export function HostsView() {
               <div className="grid">{s.hosts.map((h, i) => <HostCard key={h.id} host={h} i={i} />)}</div>
             </div>
           ))}
-        </>
+        </div>
       )}
     </div></div>
   );
