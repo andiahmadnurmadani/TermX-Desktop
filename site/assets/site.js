@@ -47,6 +47,11 @@
     android: (n) => /\.apk$/i.test(n),
   };
   const mb = (b) => (b / 1048576 >= 10 ? (b / 1048576).toFixed(0) : (b / 1048576).toFixed(1)) + " MB";
+  function pointHero() {
+    const best = os === "win" ? "win-exe" : os === "linux" ? "lin-appimage" : os === "android" ? "android" : null;
+    const el = best && document.querySelector(`[data-dl="${best}"]`);
+    if (hero && el && /\/releases\/download\//.test(el.href)) hero.href = el.href;
+  }
   const get = (repo) => fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers: { Accept: "application/vnd.github+json" } }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
   Promise.all([get(C.desktop), get(C.android)]).then(([d, a]) => {
     const versions = [];
@@ -63,9 +68,8 @@
       });
     });
     if (versions.length) document.getElementById("ver").textContent = versions.join(" · ");
-    // point the hero button at the exact file for this visitor
-    const best = os === "win" ? "win-exe" : os === "linux" ? "lin-appimage" : os === "android" ? "android" : null;
-    const el = best && document.querySelector(`[data-dl="${best}"]`);
-    if (el && /\/releases\/download\//.test(el.href)) hero.href = el.href;
+    pointHero();
   });
+  // links are baked in at build time; point the hero button at the exact file for this visitor right away
+  pointHero();
 })();

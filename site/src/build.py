@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Builds site/dist (en at /, id at /id/) from strings.py + static assets. Run: python3 site/src/build.py"""
-import html, json, os, shutil
+import html, json, os, re, shutil, urllib.request
 from strings import S
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -32,10 +32,45 @@ npx tauri build    # installer for your OS"""
 
 H = {"hosts": 1125, "settings": 1125, "terminal": 795, "sftp": 795}
 
+# Asset rules; keep in sync with RULES in assets/site.js
+RULES = {
+    "mac-arm": lambda n: n.endswith(".dmg") and re.search(r"aarch64|arm64", n),
+    "mac-x64": lambda n: n.endswith(".dmg") and re.search(r"x64|x86_64|intel", n, re.I),
+    "win-msi": lambda n: n.endswith(".msi"),
+    "win-exe": lambda n: n.endswith(".exe"),
+    "lin-appimage": lambda n: n.endswith(".AppImage"),
+    "lin-deb": lambda n: n.endswith(".deb"),
+    "lin-rpm": lambda n: n.endswith(".rpm"),
+    "android": lambda n: n.endswith(".apk"),
+}
+CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "releases.json")
+
+def releases():
+    """Latest release of each repo, baked into the page so downloads work without the GitHub API.
+    Uses GITHUB_TOKEN if set; falls back to the last good cache when offline or rate limited."""
+    out = json.load(open(CACHE)) if os.path.exists(CACHE) else {}
+    for repo in (DESKTOP_REPO, ANDROID_REPO):
+        req = urllib.request.Request(f"https://api.github.com/repos/{repo}/releases/latest", headers={"Accept": "application/vnd.github+json"})
+        if os.environ.get("GITHUB_TOKEN"): req.add_header("Authorization", "Bearer " + os.environ["GITHUB_TOKEN"])
+        try:
+            d = json.load(urllib.request.urlopen(req, timeout=10))
+            out[repo] = {"tag": d["tag_name"], "assets": [{"name": a["name"], "url": a["browser_download_url"], "size": a["size"]} for a in d["assets"]]}
+        except Exception as ex:
+            print("release lookup failed for", repo, "-", ex, "(using cache)" if repo in out else "")
+    json.dump(out, open(CACHE, "w"), indent=1)
+    return out
+
+def asset_for(rels, fid):
+    rel = rels.get(ANDROID_REPO if fid == "android" else DESKTOP_REPO)
+    return next((a for a in (rel or {}).get("assets", []) if RULES[fid](a["name"])), None)
+
+def mb(n): return f"{n / 1048576:.1f} MB"
+
 def e(s): return html.escape(s, quote=True)
 
-def page(lang):
+def page(lang, rels):
     t = S[lang]
+    VER = " · ".join(f"{k} {rels[r]['tag']}" for k, r in (("Desktop", DESKTOP_REPO), ("Android", ANDROID_REPO)) if r in rels)
     def arrow(label):
         return f'<div class="link" aria-hidden="true"><span class="rule"></span><span class="lbl">{e(label)}</span></div>'
     layers = ""
@@ -55,10 +90,12 @@ def page(lang):
     caps = "".join(f'<p class="cap" data-scene="{k}">{e(v)}</p>' for k, v in t["s_caps"].items())
     plats = ""
     for pid, name, req, files in t["d_platforms"]:
-        btns = "".join(
-            f'<a class="dl" data-dl="{fid}" href="https://github.com/{ANDROID_REPO if fid=="android" else DESKTOP_REPO}/releases/latest" rel="noopener">'
-            f'<span class="dn">{e(label)}</span><span class="de">{e(ext)}</span><span class="dm" data-meta></span></a>'
-            for fid, label, ext in files)
+        btns = ""
+        for fid, label, ext in files:
+            a = asset_for(rels, fid)
+            href = a["url"] if a else f'https://github.com/{ANDROID_REPO if fid=="android" else DESKTOP_REPO}/releases/latest'
+            btns += (f'<a class="dl" data-dl="{fid}" href="{e(href)}" rel="noopener">'
+                     f'<span class="dn">{e(label)}</span><span class="de">{e(ext)}</span><span class="dm" data-meta>{mb(a["size"]) if a else ""}</span></a>')
         plats += f'<div class="plat reveal" data-plat="{pid}"><div class="pn"><h3>{e(name)}</h3><span>{e(req)}</span></div><div class="pf">{btns}</div></div>'
     dnotes = "".join(f"<div><h4>{e(a)}</h4><p>{b}</p></div>" for a, b in t["d_notes"])
     ld = json.dumps({"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "TermX", "applicationCategory": "DeveloperApplication",
@@ -157,7 +194,7 @@ def page(lang):
 
 <section class="sec wrap" id="download">
   <div class="shead"><p class="lab">{e(t["d_label"])}</p><h2>{e(t["d_title"])}</h2></div>
-  <p class="intro">{e(t["d_sub"])} <span class="ver" id="ver"></span></p>
+  <p class="intro">{e(t["d_sub"])} <span class="ver" id="ver">{e(VER)}</span></p>
   <div class="plats">{plats}</div>
   <p class="all"><a href="https://github.com/{DESKTOP_REPO}/releases" rel="noopener">{e(t["d_all"])} →</a> <span class="sep">·</span> <a href="https://github.com/{ANDROID_REPO}/releases" rel="noopener">{e(t["foot_android"])} →</a></p>
   <div class="two notes">
@@ -193,8 +230,9 @@ def build(DIST):
     if os.path.isdir(DIST): shutil.rmtree(DIST)
     os.makedirs(DIST + "/id")
     shutil.copytree(os.path.join(ROOT, "assets"), DIST + "/assets")
-    open(DIST + "/index.html", "w").write(page("en"))
-    open(DIST + "/id/index.html", "w").write(page("id"))
+    rels = releases()
+    open(DIST + "/index.html", "w").write(page("en", rels))
+    open(DIST + "/id/index.html", "w").write(page("id", rels))
     open(DIST + "/CNAME", "w").write("termx.kroombox.com\n")
     open(DIST + "/robots.txt", "w").write(f"User-agent: *\nAllow: /\nSitemap: {SITE}/sitemap.xml\n")
     open(DIST + "/sitemap.xml", "w").write(f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>{SITE}/</loc></url><url><loc>{SITE}/id/</loc></url></urlset>\n')
