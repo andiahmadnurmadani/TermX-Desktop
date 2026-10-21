@@ -327,6 +327,25 @@ fn ai_key_set(state: State<'_, AppState>, provider: String, key: Option<String>)
     }
 }
 
+const HISTORY_KEY: &str = "cmd_history";
+
+/// Terminal command history for autocomplete (JSON, encrypted like the vault).
+#[tauri::command]
+fn history_load(state: State<'_, AppState>) -> CmdResult<String> {
+    match state.store.meta_get(HISTORY_KEY).map_err(err)? {
+        Some(enc) if !enc.is_empty() => state.sb.decrypt(&enc).map_err(err),
+        _ => Ok(String::new()),
+    }
+}
+
+#[tauri::command]
+fn history_save(state: State<'_, AppState>, data: String) -> CmdResult<()> {
+    if data.is_empty() {
+        return state.store.meta_delete(HISTORY_KEY).map_err(err);
+    }
+    state.store.meta_set(HISTORY_KEY, &state.sb.encrypt(&data).map_err(err)?).map_err(err)
+}
+
 /// Providers that have a saved key (keys themselves never go to the UI).
 #[tauri::command]
 fn ai_key_list(state: State<'_, AppState>, providers: Vec<String>) -> CmdResult<Vec<String>> {
@@ -967,6 +986,8 @@ pub fn run() {
             host_overview,
             ai_key_set,
             ai_key_list,
+            history_load,
+            history_save,
             ai_chat,
             ai_cancel,
             ai_models,

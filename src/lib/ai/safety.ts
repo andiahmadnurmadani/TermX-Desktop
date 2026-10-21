@@ -134,3 +134,26 @@ export function riskNote(command: string): string | null {
   if (/\b(iptables|ufw|nft|firewall-cmd)\b/.test(c) && !isReadOnly(c)) return "Changes the firewall";
   return null;
 }
+
+/** Read-only but expensive: whole-filesystem scans and the like. On production these still ask. */
+export function isHeavy(command: string): boolean {
+  const c = command.replace(/\s+/g, " ");
+  if (/\b(find|du|grep -r|grep -R|rg|ls -R|tree)\b[^|;&]*\s\/(\s|$|\*)/.test(c) && !/(-maxdepth|--max-depth|-d\s?\d|-xdev)/.test(c)) return true;
+  if (/\b(zgrep|grep)\b[^|;&]*\/var\/log\/?(\s|$|\*)/.test(c) && /\s-\w*r/.test(c)) return true;
+  if (/\bjournalctl\b/.test(c) && !/(-n|--lines|--since|-S|-b|-u)\b/.test(c)) return true;
+  if (/\b(docker|podman) logs\b/.test(c) && !/(--tail|-n|--since)\b/.test(c)) return true;
+  return false;
+}
+
+/** Commands that can destroy a machine in one go. Even in "always" mode these wait for the user. */
+export function isCatastrophic(command: string): boolean {
+  const c = command.replace(/\s+/g, " ");
+  if (/\brm\s+(-\w*\s+)*-\w*[rR]\w*\s+(-\w*\s+)*(--no-preserve-root\s+)?(\/|\/\*|~|\$HOME|\/(etc|usr|var|boot|home|root|bin|lib|opt|srv))\/?(\s|$|;|&)/.test(c)) return true;
+  if (/\b(mkfs(\.\w+)?|wipefs|fdisk|sfdisk|parted|sgdisk)\b/.test(c)) return true;
+  if (/\bdd\b[^|;&]*\bof=\/dev\//.test(c)) return true;
+  if (/>\s*\/dev\/(sd|nvme|vd|xvd|hd|mmcblk)/.test(c)) return true;
+  if (/:\(\)\s*\{\s*:\|:&\s*\};:/.test(c)) return true;
+  if (/\bchmod\s+(-\w+\s+)*-R\s+\S*\s+\/(\s|$)|\bchown\s+(-\w+\s+)*-R\s+\S+\s+\/(\s|$)/.test(c)) return true;
+  if (/\b(drop\s+database|drop\s+schema)\b/i.test(c)) return true;
+  return false;
+}

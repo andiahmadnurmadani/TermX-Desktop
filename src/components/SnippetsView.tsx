@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pencil, Plus, Trash2, Zap } from "lucide-react";
+import { Pencil, Plus, Trash2, Braces } from "lucide-react";
 import { api, type Snippet } from "../lib/api";
 import { useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
@@ -27,7 +27,7 @@ export function SnippetsView() {
         <button className="btn primary" onClick={() => setEdit(blank())}><Plus size={15} />{t("snip.new")}</button>
       </div>
       {list.length === 0 ? (
-        <EmptyState icon={<Zap size={26} />} title={t("snip.empty.title")} body={t("snip.empty.body")}
+        <EmptyState icon={<Braces size={26} />} title={t("snip.empty.title")} body={t("snip.empty.body")}
           action={<button className="btn primary" onClick={() => setEdit(blank())}><Plus size={15} />{t("snip.new")}</button>} />
       ) : (
         <>

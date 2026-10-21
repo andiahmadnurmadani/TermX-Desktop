@@ -1,4 +1,7 @@
 export const isMac = /Mac|iPhone|iPad/.test(navigator.platform) || /Mac OS/.test(navigator.userAgent);
+export const isWindows = /Win/.test(navigator.platform) || /Windows/.test(navigator.userAgent);
+/** Windows and Linux draw their own title bar (window controls in the tab bar), like macOS with its overlay. */
+export const customTitlebar = !isMac;
 export const modLabel = isMac ? "⌘" : "Ctrl+Shift+";
 
 /** Tab/palette shortcuts: Cmd+key on macOS, Ctrl+Shift+key elsewhere (plain Ctrl+key belongs to the shell). */

@@ -22,8 +22,14 @@ Tauri 2 (Rust) + React + xterm.js. MIT licensed. No account, no cloud, no teleme
 - **AI assistant** (`Ctrl/⌘+J`): describe what you want and the assistant types and runs the commands in your terminal while you watch.
   - It knows your hosts, groups, open sessions, the visible screen, snippets and workflows, so you can say "check disk on the NAS".
   - Providers: Anthropic, OpenAI, Google Gemini, OpenRouter, Groq, DeepSeek, Mistral, xAI, any OpenAI-compatible endpoint, and local models via Ollama or LM Studio.
-  - Approval modes: ask for every command, auto-run read-only commands, or auto-run everything. On production hosts, commands that change something always ask first.
+  - Every command is typed into a visible terminal, marked "TermX AI is typing", with a Stop button.
+  - Approval modes: ask for every command, auto-run read-only commands, run everything (production still asks), or **always allow** (no confirmations; only disk- or system-wiping commands still ask).
+  - Extra care on production hosts: read-only first, impact and rollback stated before changes, heavy scans need approval.
+  - Prompt templates (health check, slow server, disk cleanup, security audit, containers, web server, …), your own saved templates, and custom instructions.
+  - The panel is resizable (drag its edge).
   - API keys are encrypted in the local vault and never leave the app except to the provider you chose.
+- **Command autocomplete**: suggestions from that host's history, your snippets and common commands while you type (↑↓, Tab/Enter, Esc), like Termius. History is stored encrypted.
+- **Custom title bar** on Windows and Linux that follows the app theme.
 - **Local terminal** (`Ctrl/⌘+L`): your own shell (zsh / bash / PowerShell) in a tab, next to your SSH sessions.
 - **SFTP**: a file browser with drag & drop, folder upload/download and an inline text editor.
   - Works on NAS boxes too. If the SFTP subsystem is off, TermX falls back to `sftp-server` when available; otherwise it says how to turn SFTP on (Synology: Control Panel → File Services → FTP → SFTP; QNAP: Network & File Services → Telnet/SSH → Enable SFTP) instead of hanging until a timeout.

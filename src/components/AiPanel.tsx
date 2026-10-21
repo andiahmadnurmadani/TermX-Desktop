@@ -1,12 +1,14 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowUp, Check, ChevronRight, CircleAlert, Copy, CornerDownLeft, Eye, FileText, KeyRound, ListTree, Loader2, Plus, Server, Sparkles, Square, SquareTerminal, TerminalSquare, X, Zap } from "lucide-react";
-import { api, errText, type AiMsg, type AiPart } from "../lib/api";
+import { Activity, ArrowUp, BookMarked, Box, Check, ChevronRight, CircleAlert, CircleHelp, Clock, Code, Copy, CornerDownLeft, Download, Eye, FileText, Gauge, Globe, HardDrive, KeyRound, Layers, ListTree, Loader2, Network, Plus, ScrollText, Search, Server, Shield, ShieldAlert, Sparkles, Square, SquareTerminal, TerminalSquare, Trash2, X, Zap, Braces } from "lucide-react";
+import { api, errText, uid, type AiMsg, type AiPart, type AiTemplate } from "../lib/api";
 import { LOCAL_HOST, useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
 import { activeSid, answerApproval, insertIntoTerminal, send, stop, useAi } from "../lib/ai/agent";
 import { PROVIDERS, providerById, resolveProvider } from "../lib/ai/providers";
 import { isMac } from "../lib/util";
+import { confirmDialog } from "../lib/dialogs";
+import { TEMPLATES, TEMPLATE_CATS, fillTemplate, tplText, type PromptTemplate } from "../lib/ai/templates";
 import { PasswordInput } from "./ui";
 
 /* ------------------------------------------------------------------ markdown (small, safe subset) */
@@ -189,7 +191,7 @@ type ToolResult = Extract<AiPart, { type: "tool_result" }>;
 
 const TOOL_ICON: Record<string, typeof TerminalSquare> = {
   run_command: TerminalSquare, send_keys: CornerDownLeft, read_terminal: Eye, open_terminal: Plus, exec_command: Server,
-  host_overview: Server, read_file: FileText, recent_sessions: ListTree, save_snippet: Zap,
+  host_overview: Server, read_file: FileText, recent_sessions: ListTree, save_snippet: Braces,
 };
 
 function ToolCard({ use, result }: { use: ToolUse; result?: ToolResult }) {
@@ -230,8 +232,14 @@ function ToolCard({ use, result }: { use: ToolUse; result?: ToolResult }) {
           <textarea ref={box} className="input mono" rows={1} value={edit ?? ""} spellCheck={false}
             onChange={(e) => setEdit(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); answerApproval(true, edit ?? undefined, undefined, trust); } if (e.key === "Escape") answerApproval(false); }} autoFocus />
+          <label className="ai-check"><input type="checkbox" checked={trust} onChange={(e) => setTrust(e.target.checked)} />{t("ai.trustChat")}</label>
           <div className="ai-approve-row">
-            <label className="ai-check"><input type="checkbox" checked={trust} onChange={(e) => setTrust(e.target.checked)} />{t("ai.trustChat")}</label>
+            {approval!.kind !== "snippet" && <button className="btn sm ghost" title={t("ai.alwaysHint")} onClick={async () => {
+              if (!(await confirmDialog(t("ai.alwaysConfirm")))) return;
+              const st = useStore.getState();
+              await st.saveSettings({ ai: { ...st.vault!.settings.ai, approval: "always" } });
+              answerApproval(true, edit ?? undefined, undefined, true);
+            }}>{t("ai.alwaysAllow")}</button>}
             <span className="sp" />
             <button className="btn sm" onClick={() => answerApproval(false)}>{t("ai.skip")}</button>
             <button className="btn sm primary" onClick={() => answerApproval(true, edit ?? undefined, undefined, trust)}>{approval!.kind === "snippet" ? t("common.save") : t("ai.run")}<span className="kbd">↵</span></button>
@@ -242,6 +250,19 @@ function ToolCard({ use, result }: { use: ToolUse; result?: ToolResult }) {
       {open && result && !isRunning && <pre className="ai-tool-out">{result.content}</pre>}
     </div>
   );
+}
+
+/** Text blocks stay as they are; consecutive tool calls become one step list. */
+function groupParts(parts: AiPart[]): ({ kind: "text"; text: string } | { kind: "steps"; uses: ToolUse[] })[] {
+  const out: ({ kind: "text"; text: string } | { kind: "steps"; uses: ToolUse[] })[] = [];
+  for (const p of parts) {
+    if (p.type === "text") { if (p.text.trim()) out.push({ kind: "text", text: p.text }); }
+    else if (p.type === "tool_use") {
+      const last = out[out.length - 1];
+      if (last?.kind === "steps") last.uses.push(p); else out.push({ kind: "steps", uses: [p] });
+    }
+  }
+  return out;
 }
 
 function Messages({ history }: { history: AiMsg[] }) {
@@ -256,18 +277,97 @@ function Messages({ history }: { history: AiMsg[] }) {
         }
         return (
           <div key={i} className="ai-msg assistant">
-            {m.content.map((p, j) => (
-              <Fragment key={j}>
-                {p.type === "text" && p.text.trim() && <Markdown text={p.text} />}
-                {p.type === "tool_use" && <ToolCard use={p} result={results.get(p.id)} />}
-              </Fragment>
-            ))}
+            {groupParts(m.content).map((g, j) => g.kind === "text"
+              ? <Markdown key={j} text={g.text} />
+              : <div key={j} className="ai-steps">{g.uses.map((u) => <ToolCard key={u.id} use={u} result={results.get(u.id)} />)}</div>)}
           </div>
         );
       })}
     </>
   );
 }
+
+/* ------------------------------------------------------------------ prompt templates */
+
+const TPL_ICON: Record<string, typeof Sparkles> = {
+  activity: Activity, gauge: Gauge, "hard-drive": HardDrive, scroll: ScrollText, server: Server, shield: Shield, key: KeyRound,
+  box: Box, layers: Layers, globe: Globe, network: Network, download: Download, clock: Clock, servers: ListTree, help: CircleHelp, code: Code,
+};
+
+type Pick = { name: string; prompt: string };
+
+/** Pop-over above the composer: built-in templates by category, plus the user's own. */
+function TemplateMenu({ draft, host, onPick, onClose }: { draft: string; host: string | null; onPick: (p: Pick) => void; onClose: () => void }) {
+  const t = useT();
+  const { vault, saveSettings } = useStore();
+  const ai = vault!.settings.ai;
+  const lang = vault!.settings.language;
+  const mine = ai.templates ?? [];
+  const [q, setQ] = useState("");
+  const [naming, setNaming] = useState<string | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node) && !(e.target as HTMLElement).closest(".ai-tpl-btn")) onClose(); };
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
+    document.addEventListener("mousedown", h);
+    window.addEventListener("keydown", k, true);
+    return () => { document.removeEventListener("mousedown", h); window.removeEventListener("keydown", k, true); };
+  }, [onClose]);
+  const ql = q.trim().toLowerCase();
+  const match = (x: Pick) => !ql || x.name.toLowerCase().includes(ql) || x.prompt.toLowerCase().includes(ql);
+  const mineShown = mine.filter(match);
+  const groups = (Object.keys(TEMPLATE_CATS) as PromptTemplate["cat"][])
+    .map((c) => ({ c, items: TEMPLATES.filter((x) => x.cat === c && match(tplText(x, lang))) }))
+    .filter((g) => g.items.length);
+  const saveMine = (name: string) => {
+    const tpl: AiTemplate = { id: uid(), name: name.trim(), prompt: draft.trim() };
+    saveSettings({ ai: { ...ai, templates: [...mine, tpl] } });
+    setNaming(null);
+  };
+  return (
+    <div className="ai-tpl" ref={ref}>
+      <div className="ai-tpl-search"><Search size={13} /><input autoFocus placeholder={t("ai.tpl.search")} value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      <div className="ai-tpl-list">
+        {(mineShown.length > 0) && <div className="ai-tpl-cat">{t("ai.tpl.mine")}</div>}
+        {mineShown.map((m) => (
+          <div key={m.id} className="ai-tpl-item mine" onClick={() => onPick(m)}>
+            <BookMarked size={14} /><div><b>{m.name}</b><small>{m.prompt}</small></div>
+            <button className="icon-btn" title={t("common.delete")} onClick={(e) => { e.stopPropagation(); saveSettings({ ai: { ...ai, templates: mine.filter((x) => x.id !== m.id) } }); }}><Trash2 size={13} /></button>
+          </div>
+        ))}
+        {groups.map((g) => (
+          <Fragment key={g.c}>
+            <div className="ai-tpl-cat">{TEMPLATE_CATS[g.c][lang === "id" ? "id" : "en"]}</div>
+            {g.items.map((x) => {
+              const tx = tplText(x, lang);
+              const Icon = TPL_ICON[x.icon] ?? Sparkles;
+              return (
+                <div key={x.id} className="ai-tpl-item" onClick={() => onPick(tx)}>
+                  <Icon size={14} /><div><b>{tx.name}</b><small>{tx.prompt.replace(/\{host\}/g, host ?? "…")}</small></div>
+                </div>
+              );
+            })}
+          </Fragment>
+        ))}
+        {!groups.length && !mineShown.length && <div className="ai-tpl-empty">{t("ai.tpl.none")}</div>}
+      </div>
+      <div className="ai-tpl-foot">
+        {naming === null
+          ? <button className="btn sm ghost" disabled={!draft.trim()} title={draft.trim() ? "" : t("ai.tpl.saveHint")} onClick={() => setNaming("")}><Plus size={13} />{t("ai.tpl.save")}</button>
+          : <form className="ai-tpl-name" onSubmit={(e) => { e.preventDefault(); if (naming.trim()) saveMine(naming); }}>
+              <input className="input" autoFocus placeholder={t("ai.tpl.name")} value={naming} onChange={(e) => setNaming(e.target.value)} />
+              <button className="btn sm primary" disabled={!naming.trim()}>{t("common.save")}</button>
+            </form>}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ panel width */
+
+const W_KEY = "termx.aiWidth";
+const clampW = (w: number) => Math.round(Math.max(340, Math.min(w, Math.min(960, window.innerWidth - 480))));
+function loadW() { try { const v = Number(localStorage.getItem(W_KEY)); return v > 0 ? v : 460; } catch { return 460; } }
 
 export function AiPanel() {
   const t = useT();
@@ -280,6 +380,23 @@ export function AiPanel() {
   const [input, setInput] = useState("");
   const [keys, setKeys] = useState<string[] | null>(null);
   const [setup, setSetup] = useState(false);
+  const [tplOpen, setTplOpen] = useState(false);
+  const [width, setWidth] = useState(() => clampW(loadW()));
+  const lang = useStore((s) => s.vault!.settings.language);
+  useEffect(() => { const h = () => setWidth((w) => clampW(w)); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, []);
+  const startResize = (e: { preventDefault(): void; clientX: number }) => {
+    e.preventDefault();
+    const x0 = e.clientX, w0 = width;
+    let w = w0;
+    document.body.classList.add("resizing-x");
+    const move = (ev: PointerEvent) => { w = clampW(w0 + (x0 - ev.clientX)); setWidth(w); };
+    const up = () => {
+      document.body.classList.remove("resizing-x");
+      window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up);
+      try { localStorage.setItem(W_KEY, String(w)); } catch { /* ignore */ }
+    };
+    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+  };
   const scroller = useRef<HTMLDivElement>(null);
   const ta = useRef<HTMLTextAreaElement>(null);
   const { preset, model, baseUrl } = resolveProvider(ai);
@@ -304,18 +421,27 @@ export function AiPanel() {
   }, [sid, tabs, hosts, t]);
 
   if (!open) return null;
+  const grow = (el: HTMLTextAreaElement | null) => { if (el) { el.style.height = "auto"; el.style.height = Math.min(220, el.scrollHeight) + "px"; } };
+  const applyTemplate = (p: { prompt: string }) => {
+    const { text, sel } = fillTemplate(p.prompt, ctxHost?.label ?? null, lang);
+    setInput(text);
+    setTplOpen(false);
+    requestAnimationFrame(() => { const el = ta.current; if (!el) return; grow(el); el.focus(); if (sel) el.setSelectionRange(sel[0], sel[1]); else el.setSelectionRange(text.length, text.length); });
+  };
+  const isProd = !!ctxHost && "environment" in ctxHost && ctxHost.environment === "production";
+  const quick = (ctxHost ? ["health", "why-slow", "disk", "errors"] : ["fleet", "explain", "ssh-key", "reach"]).map((id) => TEMPLATES.find((x) => x.id === id)!).filter(Boolean);
   const submit = () => {
     if (!input.trim() || busy || !ready) return;
     const text = input;
     setInput("");
+    setTplOpen(false);
+    if (ta.current) ta.current.style.height = "auto";
     send(text);
   };
-  const suggestions = ctxHost
-    ? [t("ai.sug.health", { h: ctxHost.label }), t("ai.sug.disk"), t("ai.sug.logs"), t("ai.sug.services")]
-    : [t("ai.sug.hosts"), t("ai.sug.fleet"), t("ai.sug.explain")];
 
   return (
-    <aside className="ai-panel" onKeyDown={(e) => { if (e.key === "Escape" && busy) stop(); }}>
+    <aside className="ai-panel" style={{ width }} onKeyDown={(e) => { if (e.key === "Escape" && busy) stop(); }}>
+      <div className="ai-resize" onPointerDown={startResize} onDoubleClick={() => { setWidth(clampW(460)); try { localStorage.removeItem(W_KEY); } catch { /* ignore */ } }} title={t("ai.resize")} />
       <div className="ai-head" data-tauri-drag-region>
         <span className="ai-title"><Sparkles size={15} />TermX AI</span>
         <button className="ai-model" onClick={() => setSetup(!setup)} title={t("ai.settings")}>{preset.name} · <span className="mono">{model || "—"}</span></button>
@@ -338,10 +464,18 @@ export function AiPanel() {
         <div className="ai-body" ref={scroller}>
           {!history.length && !busy && (
             <div className="ai-intro">
-              <div className="ai-intro-ico"><Sparkles size={20} /></div>
+              <div className="ai-intro-ico"><Sparkles size={18} /></div>
               <h3>{t("ai.hello")}</h3>
               <p>{t("ai.helloBody")}</p>
-              <div className="ai-sugs">{suggestions.map((s) => <button key={s} onClick={() => send(s)}>{s}</button>)}</div>
+              <div className="ai-quick">
+                {quick.map((x) => { const tx = tplText(x, lang); const Icon = TPL_ICON[x.icon] ?? Sparkles; return (
+                  <button key={x.id} onClick={() => applyTemplate(tx)}>
+                    <span className="qi"><Icon size={14} /></span>
+                    <span className="qt"><b>{tx.name}</b><small>{tx.prompt.replace(/\{host\}/g, ctxHost?.label ?? "…")}</small></span>
+                  </button>
+                ); })}
+              </div>
+              <button className="ai-more" onClick={() => setTplOpen(true)}><BookMarked size={13} />{t("ai.tpl.all")}<ChevronRight size={13} /></button>
             </div>
           )}
           <Messages history={history} />
@@ -351,20 +485,22 @@ export function AiPanel() {
       )}
 
       <div className="ai-compose">
-        <div className="ai-ctx">
-          {ctxHost ? <span className="chip-ctx"><TerminalSquare size={12} />{ctxHost.label}{sessions[sid!]?.state !== "connected" && <em> · {sessions[sid!]?.state}</em>}</span> : <span className="chip-ctx muted"><Server size={12} />{t("ai.ctxAll", { n: hosts.length })}</span>}
-          <span className="chip-ctx muted" title={t("ai.approvalHint")}>{t(("ai.approval." + ai.approval) as never)}</span>
-          {usage.input + usage.output > 0 && <span className="ai-usage">{Math.round((usage.input + usage.output) / 100) / 10}k tok</span>}
-        </div>
-        <div className="ai-input">
+        {tplOpen && <TemplateMenu draft={input} host={ctxHost?.label ?? null} onPick={applyTemplate} onClose={() => setTplOpen(false)} />}
+        <div className={"ai-box" + (busy ? " busy" : "")}>
           <textarea ref={ta} rows={1} value={input} disabled={!ready} placeholder={ready ? t("ai.placeholder") : t("ai.setupFirst")}
-            onChange={(e) => { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(160, e.target.scrollHeight) + "px"; }}
+            onChange={(e) => { setInput(e.target.value); grow(e.target); }}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} />
-          {busy
-            ? <button className="ai-send stop" onClick={stop} title={t("ai.stop")}><Square size={12} /></button>
-            : <button className="ai-send" onClick={submit} disabled={!input.trim() || !ready} title={t("ai.send")}><ArrowUp size={15} /></button>}
+          <div className="ai-box-bar">
+            <button className={"chip-ctx ai-tpl-btn" + (tplOpen ? " on" : "")} onClick={() => setTplOpen(!tplOpen)} title={t("ai.tpl.title")}><BookMarked size={12} />{t("ai.tpl.short")}</button>
+            {ctxHost ? <span className={"chip-ctx" + (isProd ? " prod" : "")} title={isProd ? t("ai.prodCtx") : undefined}>{isProd ? <ShieldAlert size={12} /> : <TerminalSquare size={12} />}<span className="ell">{ctxHost.label}</span>{sessions[sid!]?.state && sessions[sid!]?.state !== "connected" && <em> · {sessions[sid!]?.state}</em>}</span> : <span className="chip-ctx muted"><Server size={12} />{t("ai.ctxAll", { n: hosts.length })}</span>}
+            <span className={"chip-ctx " + (ai.approval === "always" ? "warn" : "muted")} title={t("ai.approvalHint")}>{t(("ai.approval." + ai.approval) as never)}</span>
+            <span className="sp" />
+            {usage.input + usage.output > 0 && <span className="ai-usage" title={`${usage.input} in · ${usage.output} out`}>{Math.round((usage.input + usage.output) / 100) / 10}k</span>}
+            {busy
+              ? <button className="ai-send stop" onClick={stop} title={t("ai.stop")}><Square size={11} /></button>
+              : <button className="ai-send" onClick={submit} disabled={!input.trim() || !ready} title={`${t("ai.send")} (Enter) · Shift+Enter ↵ · ${isMac ? "⌘J" : "Ctrl+Shift+J"}`}><ArrowUp size={15} /></button>}
+          </div>
         </div>
-        <div className="ai-foot muted">{t("ai.foot", { k: isMac ? "⌘J" : "Ctrl+Shift+J" })}</div>
       </div>
     </aside>
   );

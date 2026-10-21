@@ -224,6 +224,8 @@ pub struct Settings {
     pub check_updates: bool,
     /// Answer `[sudo] password for …` prompts with the host's password without asking.
     pub sudo_autofill: bool,
+    /// Suggest commands (history and snippets) while typing in a terminal.
+    pub autocomplete: bool,
     pub ai: AiSettings,
 }
 
@@ -241,6 +243,18 @@ pub struct AiSettings {
     pub approval: String,
     /// Send the visible terminal screen with each request.
     pub share_screen: bool,
+    /// The user's own instructions, added to every conversation.
+    pub instructions: String,
+    /// Saved prompt templates.
+    pub templates: Vec<AiTemplate>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AiTemplate {
+    pub id: String,
+    pub name: String,
+    pub prompt: String,
 }
 impl Default for AiSettings {
     fn default() -> Self {
@@ -250,6 +264,8 @@ impl Default for AiSettings {
             base_urls: Default::default(),
             approval: "ask".into(),
             share_screen: true,
+            instructions: String::new(),
+            templates: vec![],
         }
     }
 }
@@ -278,6 +294,7 @@ impl Default for Settings {
             overview_interval: 10,
             check_updates: true,
             sudo_autofill: false,
+            autocomplete: true,
             ai: AiSettings::default(),
         }
     }

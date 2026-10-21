@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { api, errText, events, uid, type AiMsg, type AiPart, type AiTool, type Host } from "../api";
 import { LOCAL_HOST, termHandles, useStore, type Tab } from "../store";
-import { isReadOnly, riskNote } from "./safety";
+import { isCatastrophic, isHeavy, isReadOnly, riskNote } from "./safety";
 import { resolveProvider } from "./providers";
 
 /* ------------------------------------------------------------------ state */
@@ -25,6 +25,8 @@ interface AiState {
   running: string | null;
   /** Live output of the running terminal command. */
   runningOutput: string;
+  /** Terminal session the assistant is typing into right now. */
+  runningSid: string | null;
   approval: Approval | null;
   /** Commands approved for the rest of this chat. */
   trustChat: boolean;
@@ -37,7 +39,7 @@ interface AiState {
 }
 
 export const useAi = create<AiState>((set) => ({
-  open: false, history: [], busy: false, stream: "", running: null, runningOutput: "", approval: null, trustChat: false,
+  open: false, history: [], busy: false, stream: "", running: null, runningOutput: "", runningSid: null, approval: null, trustChat: false,
   error: null, usage: { input: 0, output: 0 }, focusSid: null,
   setOpen: (open) => set({ open }),
   reset: () => { stop(); set({ history: [], stream: "", error: null, trustChat: false, usage: { input: 0, output: 0 }, approval: null, running: null }); },
@@ -123,23 +125,57 @@ export function buildSystem(): string {
   const act = activeSid();
   const parts: string[] = [];
 
-  parts.push(`You are TermX AI, the assistant built into TermX ${st.info?.version ?? ""}, a desktop SSH client (hosts, terminals, SFTP, workspaces, workflows, snippets, live overview, session logs). The user runs it on ${st.info?.os ?? "a desktop"}. Today is ${new Date().toISOString().slice(0, 10)}.
+  const lang = s.language === "id" ? "Indonesian (Bahasa Indonesia)" : "English";
+  parts.push(`You are TermX AI, a senior Linux / DevOps engineer built into TermX ${st.info?.version ?? ""}, a desktop SSH client (hosts, terminals, SFTP, workspaces, workflows, snippets, live overview, session logs). The user runs it on ${st.info?.os ?? "a desktop"}. Today is ${new Date().toISOString().slice(0, 10)}.
 
-You operate the user's servers by typing commands into their real terminal sessions with the tools below; the user watches every keystroke and can stop you at any time.
+You operate the user's machines by typing commands into their real terminal sessions with the tools below. The user watches every keystroke and can stop you at any time. Your job is to get the task done correctly and safely, with as few steps as needed, and to explain the result clearly.
 
-How to work:
-- Investigate before changing anything. Prefer small, read-only commands, one step at a time, and read the output before the next step.
-- host_id "${LOCAL_HOST}" is the user's own computer (a local shell on ${st.info?.os ?? "their desktop"}); use it for local tasks such as ssh-keygen, ping or curl from the user's network.
-- Use the user's open terminal when it is on the right host (the "active" session); otherwise open one with open_terminal. Use exec_command for quick background checks that do not need a terminal.
-- Make commands non-interactive: add --no-pager to systemctl/journalctl/git, use -n/--lines limits, never start editors (vim, nano) or pagers, never use watch/top without batch mode, avoid commands that never end (tail -f, ping without -c). If something interactive is running, use send_keys (e.g. "<ctrl-c>", "q").
-- Before anything destructive or that causes downtime (deleting data, restarts, firewall, package removal, reboots), explain what it will do and why, then run it; the user approves each command. Be extra careful on hosts marked production.
-- sudo may prompt for a password; TermX can fill the host's saved password. If a prompt waits for input you cannot give, say so and stop.
-- Never print or ask for secrets (passwords, private keys, tokens). TermX never shows you saved passwords.
-- Answer in the user's language (the app is set to ${s.language === "id" ? "Indonesian" : "English"}). Be concise; use Markdown, put commands in code blocks. Summarise findings at the end.`);
+# How to work
+1. Understand the goal. If the request is ambiguous in a way that matters (which host? delete or just list?), ask one short question instead of guessing. Otherwise act.
+2. Pick the target. Use the ACTIVE session when it is on the right host. Otherwise use the host the user named (match names, tags, groups and environments from the host list; "the NAS", "prod db", "all staging" are fine) and open_terminal if no session exists. host_id "${LOCAL_HOST}" is the user's own computer (${st.info?.os ?? "their desktop"}); use it for local tasks such as ssh-keygen, ping, dig or curl from the user's network.
+3. Investigate first, read-only. One focused command at a time; read the output before deciding the next step. Combine related checks in one command when it keeps things clear (e.g. \`uptime; free -h; df -hT -x tmpfs\`).
+4. Adapt to the system. Check the OS from the host list or with \`cat /etc/os-release\` / \`uname -a\` before using distro-specific tools (apt vs dnf vs apk vs pacman, systemd vs OpenRC). NAS and appliances (Synology DSM, QNAP, TrueNAS, Unraid, Proxmox, ESXi, pfSense/OPNsense, routers) often have BusyBox, a different PATH, no systemd, or need sudo -i; check with \`command -v\` before relying on a tool. On Windows hosts use PowerShell.
+5. Change things only when asked, and only after explaining in one sentence what the command does and its impact. Back up config files before editing (cp file file.bak.$(date +%F)). Prefer reversible, minimal changes. Never chain a destructive command after other commands.
+6. Verify. After a change, check that it worked (service active, config test passes, port answers, disk freed).
+7. Report. End with a short summary.
+
+# Commands
+- Non-interactive only: --no-pager for systemctl/journalctl/git, -n / --lines / head limits, -b for top, -c for ping, DEBIAN_FRONTEND=noninteractive and -y only when the user approved an install. Never open editors (vim, nano, less) or pagers. Edit files with sed -i, tee or a heredoc, after a backup.
+- Keep output small: filter with grep/awk/sort/head, use human-readable flags (-h). Avoid scanning whole filesystems (find / or du / without limits); start from likely places (/var/log, /var/lib/docker, /home, /opt, /srv) with -xdev and --max-depth.
+- If a command fails, read the error and fix the cause (missing tool, wrong path, permission). Do not repeat the same failing command. If sudo is needed, use sudo -n first to see whether it needs a password; TermX can fill the saved password in a terminal.
+- If something interactive is running (a pager, a prompt, a TUI), use send_keys ("q", "<ctrl-c>") to get back to the shell. If a prompt asks for input you cannot provide (passwords, passphrases, 2FA), stop and tell the user.
+- Everything you do must be visible: run every command with run_command so it is typed into the user's terminal and they can watch it. To read a file, use run_command with cat, sed -n or tail (limit the lines). Use host_overview only for a quick multi-host summary.
+
+# Safety
+- Hosts marked PRODUCTION follow the production rules below. The user approves each command that changes something.
+- Never print, ask for or store secrets (passwords, private keys, tokens, .env values). Mask them if they appear in output. TermX never shows you saved passwords.
+- Never run commands that download and execute remote scripts, disable security controls, or delete data without an explicit request.
+
+# Production hosts
+Hosts whose environment is PRODUCTION serve real users and real data. Mistakes there cost money and trust, so on them:
+- Read-only first, always. Gather evidence and explain what you found before proposing any change.
+- Before any change, state in one or two lines: what the command does, the expected impact (downtime, users or data affected), and how to roll it back. Then run it so the user can approve it.
+- Prefer the gentlest option: reload over restart, graceful over forced, one service or one node at a time. Test configuration before applying it (nginx -t, apachectl configtest, sshd -t, haproxy -c, named-checkconf, docker compose config, visudo -c).
+- Back up before editing: cp -a file file.bak.$(date +%Y%m%d-%H%M%S). Before touching a database, ask whether a recent backup or snapshot exists.
+- Check that it is a safe moment: active users and connections, running jobs or deploys, replication and cluster state, free disk space for what you are about to do.
+- Never run, unless the user asked for that exact action in this chat (and even then show the exact command first): rm -rf or bulk deletes, truncating or deleting logs in use, DROP / DELETE / TRUNCATE / ALTER on databases, kill -9 on processes you have not identified, reboot / shutdown, firewall or SSH changes that could lock the user out, package upgrades or removals, docker system/volume prune, chmod/chown -R, mkfs/dd/partitioning.
+- Keep the load light: no unbounded find / du / grep over whole filesystems or huge logs; scope paths, add limits, and use nice -n 19 / ionice -c3 for heavier reads.
+- Never work on several production hosts in one go. Do one, verify it is healthy, report, then continue with the next only if the user agrees.
+- If anything is unclear or the output is surprising, stop and ask instead of guessing.
+
+# Answers
+- Reply in ${lang} unless the user writes in another language; then use theirs.
+- Be concise and concrete. Use Markdown: short paragraphs, bullet lists, tables for comparisons or per-host results, and fenced code blocks (\`\`\`bash) for commands the user may want to run.
+- Lead with the answer or the finding, then the evidence (the relevant output lines, trimmed), then the recommendation. Quote numbers exactly as the system printed them.
+- When you did something, say what changed. When you recommend something you did not run, give the exact command.
+- Do not narrate every step while working; one short line before a tool call is enough.`);
+  if (s.ai?.approval === "always") parts.push(`# Approval mode: ALWAYS (no confirmations)
+The user turned off command approval: every command you send runs immediately, on every host, production included. Nobody reviews it before it runs, so you are the last check. Before each command that changes something, re-read it and make sure it is exactly what the user asked for, scoped to the right host and path, and reversible or backed up. On production, still follow the production rules: read-only first, smallest change, verify after. If a step is risky or the request is unclear, ask in chat instead of running it.`);
+  if (s.ai?.instructions?.trim()) parts.push(`# The user's own instructions (follow them unless they conflict with safety)\n${s.ai.instructions.trim()}`);
 
   parts.push(`## Hosts (${v.hosts.length})\nid | name | user@address:port | group | environment | tags | OS | jump host | auth | notes`);
   for (const h of v.hosts) {
-    parts.push(line(h.id, h.label, `${h.username}@${h.hostname}:${h.port}`, h.groupId ? groups.get(h.groupId) : "", h.environment || "", h.tags.length ? h.tags.join(",") : "",
+    parts.push(line(h.id, h.label, `${h.username}@${h.hostname}:${h.port}`, h.groupId ? groups.get(h.groupId) : "", h.environment === "production" ? "PRODUCTION" : h.environment || "", h.tags.length ? h.tags.join(",") : "",
       h.osName || h.osId || "", h.jumpHostId ? `via ${hosts.get(h.jumpHostId)?.label ?? h.jumpHostId}` : "", h.auth + (h.auth === "password" ? (h.hasPassword ? " (saved)" : " (asks)") : ""),
       h.tmux ? "tmux" : "", h.startupCommand ? `startup: ${h.startupCommand}` : "", h.notes ? `notes: ${h.notes.replace(/\s+/g, " ").slice(0, 200)}` : ""));
   }
@@ -152,6 +188,10 @@ How to work:
   if (other.length) parts.push(`Other tabs: ${other.map((tb) => `${tb.kind} "${tb.title}"`).join(", ")}`);
   if (!st.active) parts.push(`The user is on the "${st.view}" page of the app.`);
 
+  const actHost = act ? hostOf(termHandles.get(act)?.hostId ?? "") : undefined;
+  if (actHost?.environment === "production") parts.push(`## ⚠ The ACTIVE session is on PRODUCTION host "${actHost.label}". Apply the production rules to every command there.`);
+  const prodHosts = v.hosts.filter((h) => h.environment === "production");
+  if (prodHosts.length) parts.push(`Production hosts: ${prodHosts.map((h) => h.label).join(", ")}.`);
   if (act && s.ai?.shareScreen !== false) {
     const h = termHandles.get(act);
     const screen = h?.tail(40);
@@ -188,12 +228,8 @@ export const TOOLS: AiTool[] = [
     parameters: { type: "object", properties: { session_id: str, lines: { type: "number" } }, required: ["session_id"] } },
   { name: "open_terminal", description: "Open a new terminal tab connected to a host and return its session id and first screen.",
     parameters: { type: "object", properties: { host_id: str }, required: ["host_id"] } },
-  { name: "exec_command", description: "Run a non-interactive command on a host in the background (no terminal, 30 s limit) and return stdout, stderr and the exit code.",
-    parameters: { type: "object", properties: { host_id: str, command: str }, required: ["host_id", "command"] } },
   { name: "host_overview", description: "Get a quick health summary of a host: OS, kernel, uptime, load, CPU, memory, disk, failed systemd units.",
     parameters: { type: "object", properties: { host_id: str }, required: ["host_id"] } },
-  { name: "read_file", description: "Read a text file on a host over SFTP (first 64 KB).",
-    parameters: { type: "object", properties: { host_id: str, path: str }, required: ["host_id", "path"] } },
   { name: "recent_sessions", description: "List recent connection history from TermX's logs (host, time, status, errors).",
     parameters: { type: "object", properties: { limit: { type: "number" } } } },
   { name: "save_snippet", description: "Save a command as a TermX snippet so the user can reuse it.",
@@ -209,9 +245,11 @@ const parseKeys = (k: string) => k.replace(/<([a-z-]+)>/gi, (m, name) => KEYS[na
 /** Approval policy: does this command need the user's OK? */
 function needsApproval(kind: Approval["kind"], command: string, host: Host | undefined): boolean {
   const policy = useStore.getState().vault?.settings.ai?.approval ?? "ask";
+  // "always": the user chose full automation; only commands that could wreck the machine still stop
+  if (policy === "always") return kind !== "keys" && kind !== "snippet" && isCatastrophic(command);
   if (kind === "snippet") return true;
   if (kind === "keys" && /^(<ctrl-c>|q|<esc>)$/i.test(command.trim())) return false;
-  const ro = kind !== "keys" && isReadOnly(command);
+  const ro = kind !== "keys" && isReadOnly(command) && !(host?.environment === "production" && isHeavy(command));
   if (useAi.getState().trustChat && !(host?.environment === "production" && !ro)) return false;
   if (policy === "auto") return host?.environment === "production" && !ro;
   if (policy === "safe") return !ro;
@@ -292,6 +330,7 @@ async function runCommand(sid: string, command: string, timeoutSec: number): Pro
     last = Date.now();
     if (last - lastLive > 150) { lastLive = last; useAi.setState({ runningOutput: clip(h.readFrom(start), 3000) }); }
   });
+  useAi.setState({ runningSid: sid });
   try {
     // Ctrl-U clears anything half-typed on the line first
     await h.write("\x15" + command.replace(/\r?\n/g, "\r") + "\r");
@@ -318,8 +357,12 @@ async function runCommand(sid: string, command: string, timeoutSec: number): Pro
     return `[${status}]\n${clip(body) || "(no output)"}`;
   } finally {
     un();
+    useAi.setState({ runningSid: null });
   }
 }
+
+/** Reminder on every result from a production host, so caution survives a long conversation. */
+const prodNote = (h: Host | undefined) => (h?.environment === "production" ? `[PRODUCTION host "${h.label}": production rules apply. Verify before and after any change.]\n` : "");
 
 async function execTool(name: string, input: Record<string, unknown>, toolId: string): Promise<{ content: string; isError: boolean; label?: string }> {
   const ok = (content: string) => ({ content, isError: false });
@@ -346,7 +389,7 @@ async function execTool(name: string, input: Record<string, unknown>, toolId: st
         return ok(`Screen now:\n${clip(h.tail(30), 4000)}`);
       }
       const edited = command !== String(input.command ?? "").trim() ? `(The user edited the command to: ${command})\n` : "";
-      return ok(edited + (await runCommand(sid, command, Number(input.timeout_sec) || 30)));
+      return ok(prodNote(host) + edited + (await runCommand(sid, command, Number(input.timeout_sec) || 30)));
     }
     case "read_terminal": {
       const h = termHandles.get(String(input.session_id));
@@ -360,27 +403,15 @@ async function execTool(name: string, input: Record<string, unknown>, toolId: st
       const sid = await openTerminal(hid);
       return ok(`session_id: ${sid}\nScreen:\n${clip(termHandles.get(sid)!.tail(30), 4000)}`);
     }
-    case "exec_command": {
-      const host = hostOf(String(input.host_id));
-      if (!host) throw new Error(`Unknown host_id ${input.host_id}.`);
-      let command = String(input.command ?? "").trim();
-      if (needsApproval("exec", command, host)) {
-        const r = await ask({ toolId, kind: "exec", command, hostLabel: host.label, production: host.environment === "production", risk: riskNote(command) });
-        if (!r.ok) return { content: `The user declined to run this.${r.note ? ` They said: ${r.note}` : ""}`, isError: true };
-        if (r.command) command = r.command;
-      }
-      useAi.setState({ running: toolId });
-      const r = await api.sshExec(host.id, command);
-      return ok(`exit code: ${r.exit ?? "unknown"}\nstdout:\n${clip(r.stdout, 10000) || "(empty)"}${r.stderr.trim() ? `\nstderr:\n${clip(r.stderr, 4000)}` : ""}`);
+    case "exec_command":
+    case "read_file": {
+      // older chats may still call these: run them visibly in a terminal like everything else
+      const command = name === "read_file" ? `head -c 65536 -- '${String(input.path ?? "").replace(/'/g, "'\\''")}'` : String(input.command ?? "");
+      return execTool("run_command", { command, host_id: input.host_id }, toolId);
     }
     case "host_overview": {
       useAi.setState({ running: toolId });
       return ok(JSON.stringify(await api.hostOverview(String(input.host_id))));
-    }
-    case "read_file": {
-      useAi.setState({ running: toolId });
-      const text = await api.sftpReadText(String(input.host_id), String(input.path));
-      return ok(text.length > 65536 ? text.slice(0, 65536) + "\n… [truncated]" : text || "(empty file)");
     }
     case "recent_sessions": {
       const logs = (await api.logsList()).slice(0, Math.min(50, Number(input.limit) || 15));

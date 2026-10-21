@@ -20,12 +20,15 @@ export interface Settings {
   uiFont: string; uiScale: number; fontWeight: number; fontWeightBold: number; letterSpacing: number;
   sessionLogs: boolean; overviewLive: boolean; overviewInterval: number; checkUpdates: boolean;
   sudoAutofill: boolean;
+  autocomplete: boolean;
   ai: AiSettings;
 }
 export interface AiSettings {
   provider: string; models: Record<string, string>; baseUrls: Record<string, string>;
-  approval: "ask" | "safe" | "auto"; shareScreen: boolean;
+  approval: "ask" | "safe" | "auto" | "always"; shareScreen: boolean;
+  instructions: string; templates: AiTemplate[];
 }
+export interface AiTemplate { id: string; name: string; prompt: string }
 export type AiPart =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
@@ -134,6 +137,8 @@ export const api = {
   hostOverview: (hostId: string) => invoke<Overview>("host_overview", { hostId }),
   aiKeySet: (provider: string, key: string | null) => invoke<void>("ai_key_set", { provider, key }),
   aiKeyList: (providers: string[]) => invoke<string[]>("ai_key_list", { providers }),
+  historyLoad: () => invoke<string>("history_load"),
+  historySave: (data: string) => invoke<void>("history_save", { data }),
   aiChat: (reqId: string, provider: string, req: AiChatReq) => invoke<AiChatResp>("ai_chat", { reqId, provider, req }),
   aiCancel: (reqId: string) => invoke<void>("ai_cancel", { reqId }),
   aiModels: (provider: string, api: string, baseUrl: string) => invoke<string[]>("ai_models", { provider, api, baseUrl }),

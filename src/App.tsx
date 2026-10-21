@@ -1,12 +1,13 @@
 import { useEffect } from "react";
-import { Activity, ArrowUpCircle, FolderOpen, KeyRound, LayoutGrid, ListChecks, Lock, Plus, ScrollText, Search, Server, Settings, SquareTerminal, Workflow, X, Zap } from "lucide-react";
+import { Activity, ArrowUpCircle, FolderOpen, KeyRound, LayoutGrid, ListChecks, Lock, Plus, ScrollText, Search, Server, Settings, SquareTerminal, Workflow, X, Braces } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { tabState, useStore, type View } from "./lib/store";
 import { api } from "./lib/api";
 import { useT, type Key } from "./lib/i18n";
 import { useApplyTheme, useApplyUi, useFullscreen } from "./lib/theme";
 import { useUpdater } from "./lib/updater";
-import { isMac, isMod, modLabel } from "./lib/util";
+import { customTitlebar, isMac, isMod, modLabel } from "./lib/util";
+import { WindowControls } from "./components/WindowControls";
 import { HostsView } from "./components/HostsView";
 import { HostDrawer } from "./components/HostDrawer";
 import { TerminalView } from "./components/TerminalView";
@@ -35,7 +36,7 @@ const NAV: { v: View; icon: typeof Server; label: Key }[] = [
   { v: "overview", icon: Activity, label: "nav.overview" },
   { v: "logs", icon: ScrollText, label: "nav.logs" },
   { v: "keys", icon: KeyRound, label: "nav.keys" },
-  { v: "snippets", icon: Zap, label: "nav.snippets" },
+  { v: "snippets", icon: Braces, label: "nav.snippets" },
   { v: "settings", icon: Settings, label: "nav.settings" },
 ];
 
@@ -49,6 +50,7 @@ export default function App() {
   const fullscreen = useFullscreen();
   const info = useStore((s) => s.info);
   const upd = useUpdater();
+  const aiOpen = useAi((s) => s.open);
 
   useEffect(() => { load().catch((e) => toast(String(e), "error")); }, [load, toast]);
 
@@ -84,7 +86,7 @@ export default function App() {
   if (!vault) return <div className="app" />;
 
   return (
-    <div className={"app" + (isMac ? " mac" : "") + (fullscreen ? " fs" : "")}>
+    <div className={"app" + (isMac ? " mac" : "") + (customTitlebar ? " ctb" : "") + (fullscreen ? " fs" : "") + (aiOpen ? " ai-on" : "")}>
       <aside className="sidebar">
         <div className="drag" data-tauri-drag-region>
           <div className="brand" data-tauri-drag-region><BrandMark />TermX</div>
@@ -148,6 +150,7 @@ export default function App() {
       </div>
 
       <AiPanel />
+      {customTitlebar && <WindowControls />}
       {hostDialog && <HostDrawer key={hostDialog.hostId ?? "new"} />}
       {palette && <Palette />}
       <Prompts />

@@ -3,6 +3,7 @@ import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialo
 import { ArrowUpCircle, Archive, Download, KeyRound, Lock, RefreshCw, ScrollText, Trash2, Upload } from "lucide-react";
 import { api, errText } from "../lib/api";
 import { useStore } from "../lib/store";
+import { confirmDialog } from "../lib/dialogs";
 import { useT } from "../lib/i18n";
 import { THEME_IDS, THEME_NAMES, terminalTheme } from "../lib/themes";
 import { uiFontStack, useResolvedDark } from "../lib/theme";
@@ -242,6 +243,7 @@ export function SettingsView() {
           <Row title={t("set.cursorBlink")}><Switch on={s.cursorBlink} onChange={(b) => saveSettings({ cursorBlink: b })} /></Row>
           <Row title={t("set.copyOnSelect")}><Switch on={s.copyOnSelect} onChange={(b) => saveSettings({ copyOnSelect: b })} /></Row>
           <Row title={t("set.sudoAutofill")} hint={t("set.sudoAutofillHint")}><Switch on={!!s.sudoAutofill} onChange={(b) => saveSettings({ sudoAutofill: b })} /></Row>
+          <Row title={t("set.autocomplete")} hint={t("set.autocompleteHint")}><Switch on={s.autocomplete !== false} onChange={(b) => saveSettings({ autocomplete: b })} /></Row>
         </div>
       </div>
 
@@ -250,10 +252,12 @@ export function SettingsView() {
         <div className="panel list">
           <div className="setting ai-setting"><div className="meta"><div>{t("ai.provider")}</div><small>{t("ai.setupBody")}</small></div><div className="ctl"><AiSetup /></div></div>
           <Row title={t("ai.approvalTitle")} hint={t("ai.approvalHint")}>
-            <Seg value={s.ai.approval} onChange={(v) => saveSettings({ ai: { ...s.ai, approval: v } })}
-              options={[{ v: "ask", label: t("ai.approval.ask") }, { v: "safe", label: t("ai.approval.safe") }, { v: "auto", label: t("ai.approval.auto") }]} />
+            <Seg value={s.ai.approval} onChange={async (v) => { if (v === "always" && !(await confirmDialog(t("ai.alwaysConfirm")))) return; saveSettings({ ai: { ...s.ai, approval: v } }); }}
+              options={[{ v: "ask", label: t("ai.approval.ask") }, { v: "safe", label: t("ai.approval.safe") }, { v: "auto", label: t("ai.approval.auto") }, { v: "always", label: t("ai.approval.always") }]} />
           </Row>
           <Row title={t("ai.shareScreen")} hint={t("ai.shareScreenHint")}><Switch on={s.ai.shareScreen} onChange={(b) => saveSettings({ ai: { ...s.ai, shareScreen: b } })} /></Row>
+          <div className="setting ai-setting"><div className="meta"><div>{t("ai.instructions")}</div><small>{t("ai.instructionsHint")}</small></div>
+            <div className="ctl"><AiInstructions /></div></div>
         </div>
       </div>
 
@@ -327,5 +331,18 @@ export function SettingsView() {
 
       <div style={{ textAlign: "center", color: "var(--text-3)", fontSize: 12 }}>TermX {info?.version} · {info?.os}</div>
     </div></div>
+  );
+}
+
+/** Custom instructions for the assistant, saved when the field loses focus. */
+function AiInstructions() {
+  const t = useT();
+  const { vault, saveSettings } = useStore();
+  const ai = vault!.settings.ai;
+  const [v, setV] = useState(ai.instructions ?? "");
+  return (
+    <textarea className="input ai-instr" rows={5} value={v} placeholder={t("ai.instructionsPh")} spellCheck={false}
+      onChange={(e) => setV(e.target.value)}
+      onBlur={() => { if (v !== (ai.instructions ?? "")) saveSettings({ ai: { ...ai, instructions: v } }); }} />
   );
 }

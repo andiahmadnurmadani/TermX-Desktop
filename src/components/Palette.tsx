@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, FolderOpen, KeyRound, LayoutGrid, ListChecks, Play, Plus, ScrollText, Settings, Terminal, Workflow, Zap } from "lucide-react";
+import { Activity, FolderOpen, KeyRound, LayoutGrid, ListChecks, Play, Plus, ScrollText, Settings, Terminal, Workflow, Braces } from "lucide-react";
 import { Sparkles, SquareTerminal } from "lucide-react";
 import { useAi } from "../lib/ai/agent";
 import { OsIcon } from "../lib/os";
@@ -34,7 +34,7 @@ export function Palette() {
       { id: "a7", group: t("palette.actions"), label: t("palette.logs"), icon: <ScrollText size={15} />, run: () => setView("logs") },
       { id: "a1", group: t("palette.actions"), label: t("palette.newHost"), icon: <Plus size={15} />, run: () => openHostDialog(null) },
       { id: "a2", group: t("palette.actions"), label: t("nav.keys"), icon: <KeyRound size={15} />, run: () => setView("keys") },
-      { id: "a3", group: t("palette.actions"), label: t("nav.snippets"), icon: <Zap size={15} />, run: () => setView("snippets") },
+      { id: "a3", group: t("palette.actions"), label: t("nav.snippets"), icon: <Braces size={15} />, run: () => setView("snippets") },
       { id: "a4", group: t("palette.actions"), label: t("nav.settings"), icon: <Settings size={15} />, run: () => setView("settings") },
     );
     if (!s) return out.filter((i) => !i.id.startsWith("f") && !i.id.startsWith("g"));

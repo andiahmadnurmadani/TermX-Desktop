@@ -21,7 +21,7 @@ export function LockScreen() {
     setBusy(false);
   };
   return (
-    <div className="lock">
+    <div className="lock" data-tauri-drag-region>
       <form className="lock-card" onSubmit={submit}>
         <div className="lock-ico"><Lock size={22} /></div>
         <h2>{t("lock.title")}</h2>

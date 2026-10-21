@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { Terminal } from "@xterm/xterm";
+import { Terminal, type IMarker } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowDown, ArrowUp, Check, CircleAlert, FolderOpen, KeyRound, Maximize2, Minimize2, RefreshCw, Search, TerminalSquare, X, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, CircleAlert, FolderOpen, History, KeyRound, Maximize2, Minimize2, RefreshCw, Search, TerminalSquare, X, Braces } from "lucide-react";
+import { loadHistory, remember, suggest, type Suggestion } from "../lib/autocomplete";
+import { stop as stopAi, useAi } from "../lib/ai/agent";
 import "@xterm/xterm/css/xterm.css";
 import { api, Channel, errText, events, type LogEvent, type Settings } from "../lib/api";
 import { LOCAL_HOST, termHandles, useStore, type SessionInfo } from "../lib/store";
@@ -47,6 +49,8 @@ function applySettings(term: Terminal, s: Settings, dark: boolean) {
   term.options.theme = terminalTheme(s.terminalTheme, dark, s.accent);
 }
 
+interface AcState { items: Suggestion[]; sel: number; typed: string; left: number; top: number; above: boolean }
+
 /** Extra chrome when the terminal lives in a workspace pane. */
 export interface PaneChrome { focused: boolean; maximized: boolean; onFocus: () => void; onToggleMax: () => void }
 
@@ -83,8 +87,16 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
   settingsRef.current = settings;
   const darkRef = useRef(dark);
   darkRef.current = dark;
+  const aiHere = useAi((a) => a.runningSid === sid);
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
+  const snippetsRef = useRef(snippets);
+  snippetsRef.current = snippets;
+  // autocomplete pop-up
+  const [ac, setAcState] = useState<AcState | null>(null);
+  const acRef = useRef<AcState | null>(null);
+  const setAc = (v: AcState | null) => { acRef.current = v; setAcState(v); };
+  const acceptRef = useRef<(s: Suggestion) => void>(() => {});
 
   // create terminal + session once
   useEffect(() => {
@@ -142,9 +154,77 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
         onOutput: (cb) => { outputSubs.add(cb); return () => outputSubs.delete(cb); },
       });
 
+      /* ---- autocomplete: where the user's input starts, what they typed, and suggestions */
+      loadHistory();
+      let anchor: { m: IMarker; x: number } | null = null;
+      let acPendingUntil = 0;
+      let acTimer = 0;
+      const dropAnchor = () => { anchor?.m.dispose(); anchor = null; };
+      const typedText = (): string | null => {
+        const b = term.buffer.active;
+        if (b.type !== "normal" || !anchor || anchor.m.isDisposed) return null;
+        const cy = b.baseY + b.cursorY, ay = anchor.m.line;
+        if (ay < 0 || cy < ay || cy - ay > 8) return null;
+        let out = "";
+        for (let y = ay; y <= cy; y++) {
+          const line = b.getLine(y);
+          if (!line) return null;
+          out += line.translateToString(false, y === ay ? anchor.x : 0, y === cy ? b.cursorX : term.cols);
+        }
+        // the cursor must be at the end of the input
+        if (b.getLine(cy)?.translateToString(true, b.cursorX).trim()) return null;
+        return out;
+      };
+      const computeAc = () => {
+        if (settingsRef.current.autocomplete === false || !visibleRef.current) { if (acRef.current) setAc(null); return; }
+        const typed = typedText();
+        const items = typed == null ? [] : suggest(tab.hostId, typed, snippetsRef.current);
+        if (!items.length || typed == null) { if (acRef.current) setAc(null); return; }
+        const screen = el.querySelector(".xterm-screen") as HTMLElement | null;
+        if (!screen) return;
+        const sr = screen.getBoundingClientRect(), er = el.getBoundingClientRect();
+        const cw = sr.width / term.cols, chh = sr.height / term.rows;
+        const b = term.buffer.active;
+        const left = Math.max(4, Math.min(sr.left - er.left + b.cursorX * cw - 8, er.width - 360));
+        const above = b.cursorY > term.rows * 0.55;
+        const top = sr.top - er.top + (above ? b.cursorY * chh - 4 : (b.cursorY + 1) * chh + 4);
+        const prev = acRef.current;
+        const sel = prev && prev.typed === typed ? Math.min(prev.sel, items.length - 1) : -1;
+        setAc({ items, sel, typed, left, top, above });
+      };
+      const scheduleAc = () => {
+        acPendingUntil = Date.now() + 1500;
+        window.clearTimeout(acTimer);
+        acTimer = window.setTimeout(computeAc, 35);
+      };
+      outputSubs.add(() => { if (Date.now() < acPendingUntil) { window.clearTimeout(acTimer); acTimer = window.setTimeout(computeAc, 15); } });
+      cleanups.push(() => { window.clearTimeout(acTimer); dropAnchor(); });
+      acceptRef.current = (sg) => {
+        const cur = acRef.current;
+        setAc(null);
+        if (!cur) return;
+        const typed = cur.typed;
+        const data = sg.text.startsWith(typed) ? sg.text.slice(typed.length) : "\x7f".repeat([...typed].length) + sg.text;
+        if (data) api.sshWrite(tab.id, data).catch(() => {});
+        acPendingUntil = 0;
+        term.focus();
+      };
+
       // keys: let app shortcuts bubble; Ctrl+Shift+C/V on Windows/Linux
       term.attachCustomKeyEventHandler((e) => {
         if (e.type !== "keydown") return true;
+        const cur = acRef.current;
+        if (cur && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          const n = cur.items.length;
+          if (e.key === "ArrowDown") { e.preventDefault(); setAc({ ...cur, sel: (cur.sel + 1) % n }); return false; }
+          if (e.key === "ArrowUp") {
+            if (cur.sel < 0) { setAc(null); return true; }
+            e.preventDefault(); setAc({ ...cur, sel: cur.sel - 1 }); return false;
+          }
+          if ((e.key === "Tab" || e.key === "Enter") && cur.sel >= 0) { e.preventDefault(); acceptRef.current(cur.items[cur.sel]); return false; }
+          if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); acceptRef.current(cur.items[0]); return false; }
+          if (e.key === "Escape") { e.preventDefault(); setAc(null); acPendingUntil = 0; return false; }
+        }
         if (isMod(e, "f")) { setFind(true); setTimeout(() => findInput.current?.focus(), 0); return false; }
         if (["k", "w", "t", "j", "l", "[", "]", "enter", "1", "2", "3", "4", "5", "6", "7", "8", "9"].some((k) => isMod(e, k))) return false;
         if (!isMac && e.ctrlKey && e.shiftKey) {
@@ -157,6 +237,18 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
       term.onData((d) => {
         autoBlock.current = false;
         setPrompt(null);
+        // autocomplete bookkeeping happens before the keystroke reaches the shell
+        if (d.includes("\r")) {
+          const typed = typedText();
+          if (typed && term.buffer.active.type === "normal") remember(tab.hostId, typed);
+          dropAnchor(); acPendingUntil = 0; if (acRef.current) setAc(null);
+        } else if (d === "\x03" || d === "\x04" || d === "\x0c") {
+          dropAnchor(); acPendingUntil = 0; if (acRef.current) setAc(null);
+        } else if (term.buffer.active.type === "normal") {
+          if (!anchor) { const b = term.buffer.active; const m = term.registerMarker(0); if (m) anchor = { m, x: b.cursorX }; }
+          const printable = !d.startsWith("\x1b") && (/^[^\x00-\x1f]/.test(d) || d === "\x7f" || d === "\b");
+          if (printable) scheduleAc(); else { acPendingUntil = 0; if (acRef.current) setAc(null); }
+        }
         api.sshWrite(tab.id, d).catch(() => {});
       });
       term.onResize(({ cols, rows }) => { api.sshResize(tab.id, cols, rows).catch(() => {}); });
@@ -256,6 +348,8 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
     return () => cancelAnimationFrame(id);
   }, [visible, pane?.maximized]);
 
+  useEffect(() => { if (!visible && acRef.current) setAc(null); }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // focus follows the selected pane
   useEffect(() => { if (pane?.focused && visible) termRef.current?.focus(); }, [pane?.focused, visible]);
 
@@ -278,13 +372,14 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
   const overlay = state === "failed" || state === "ended" || (state === "connecting" && !everConnected);
 
   return (
-    <div className={"tpane" + (visible ? "" : " hidden") + (pane ? " in-pane" : "") + (pane?.focused ? " focused" : "")} style={{ ["--term-bg" as string]: bg }}
+    <div className={"tpane" + (aiHere ? " ai-live" : "") + (visible ? "" : " hidden") + (pane ? " in-pane" : "") + (pane?.focused ? " focused" : "")} style={{ ["--term-bg" as string]: bg }}
       onMouseDownCapture={pane ? () => { if (!pane.focused) pane.onFocus(); } : undefined}>
       <div className="tbar" onDoubleClick={pane ? (e) => { if ((e.target as HTMLElement).closest("button")) return; pane.onToggleMax(); } : undefined}>
         <div className="who"><span className={"dot " + state} />{isLocal && <><b className="pane-name">{t("term.local")}</b><span className="addr">{shell.split(/[\\/]/).pop()}</span></>}{pane && host ? <b className="pane-name">{host.label}</b> : null}{host?.environment && <EnvBadge env={host.environment} />}<span className="addr">{host ? `${host.username}@${host.hostname}` : ""}</span>{host?.tmux && <span className="tag">tmux</span>}</div>
         <div className="sp" />
+        {aiHere && <span className="ai-typing" title={t("ai.typingHint")}><i />{t("ai.typing")}<button onClick={() => stopAi()}>{t("ai.stopShort")}</button></span>}
         <div style={{ position: "relative" }}>
-          <button className="btn ghost sm" onClick={() => setSnipOpen(!snipOpen)}><Zap size={14} /><span className="lbl">{t("term.snippets")}</span></button>
+          <button className="btn ghost sm" onClick={() => setSnipOpen(!snipOpen)}><Braces size={14} /><span className="lbl">{t("term.snippets")}</span></button>
           {snipOpen && (
             <>
               <div style={{ position: "fixed", inset: 0, zIndex: 29 }} onMouseDown={() => setSnipOpen(false)} />
@@ -313,6 +408,18 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
       )}
 
       <div className="tmount" ref={mountRef} onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); }}>
+        {ac && !overlay && (
+          <div className={"ac-pop" + (ac.above ? " above" : "")} style={{ left: ac.left, top: ac.top }} onMouseDown={(e) => e.preventDefault()}>
+            {ac.items.map((it, i) => (
+              <div key={it.text} className={"ac-item" + (i === ac.sel ? " on" : "")} onMouseEnter={() => setAc({ ...ac, sel: i })} onClick={() => acceptRef.current(it)}>
+                <span className={"ac-ic " + it.kind}>{it.kind === "history" ? <History size={12} /> : it.kind === "snippet" ? <Braces size={12} /> : <TerminalSquare size={12} />}</span>
+                <span className="ac-t">{(() => { const n = it.text.startsWith(ac.typed.trimStart()) ? ac.typed.trimStart().length : 0; return <><b>{it.text.slice(0, n)}</b>{it.text.slice(n)}</>; })()}</span>
+                {it.label && <span className="ac-l">{it.label}</span>}
+              </div>
+            ))}
+            <div className="ac-foot">{t("ac.hint")}</div>
+          </div>
+        )}
         {state === "reconnecting" && (
           <div className="findbar" style={{ top: 8, left: "50%", right: "auto", transform: "translateX(-50%)", padding: "7px 14px", gap: 10 }}>
             <div className="spinner" style={{ width: 14, height: 14 }} />{t("term.reconnecting")}
