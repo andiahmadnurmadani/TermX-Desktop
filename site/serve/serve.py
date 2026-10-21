@@ -13,9 +13,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def end_headers(self):
-        p = self.path.split("?")[0]
-        if p.startswith("/assets/"):
-            self.send_header("Cache-Control", "public, max-age=86400")
+        p, _, q = self.path.partition("?")
+        if p.startswith("/assets/") and q.startswith("v="):
+            # the URL carries a content hash, so it can never go stale
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        elif p.startswith("/assets/"):
+            self.send_header("Cache-Control", "public, max-age=3600")
         else:
             self.send_header("Cache-Control", "public, max-age=60")
         self.send_header("X-Content-Type-Options", "nosniff")

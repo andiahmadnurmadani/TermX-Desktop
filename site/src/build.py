@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Builds site/dist (en at /, id at /id/) from strings.py + static assets. Run: python3 site/src/build.py"""
-import html, json, os, re, shutil, urllib.request
+import hashlib, html, json, os, re, shutil, urllib.request
 from strings import S
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -313,13 +313,22 @@ def main():
     if os.path.isdir(old): shutil.rmtree(old)
     print("built", final)
 
+def versioned(doc, DIST):
+    """Add a content hash to every local asset URL, so a CDN or browser never pairs new HTML with an old file."""
+    def tag(m):
+        f = os.path.join(DIST, m.group(2).lstrip("/"))
+        if not os.path.isfile(f): return m.group(0)
+        h = hashlib.sha256(open(f, "rb").read()).hexdigest()[:10]
+        return f'{m.group(1)}{m.group(2)}?v={h}{m.group(3)}'
+    return re.sub(r'((?:src|href)=")(/assets/(?!fonts/)[^"?#]+)(")', tag, doc)
+
 def build(DIST):
     if os.path.isdir(DIST): shutil.rmtree(DIST)
     os.makedirs(DIST + "/id")
     shutil.copytree(os.path.join(ROOT, "assets"), DIST + "/assets")
     rels = releases()
-    open(DIST + "/index.html", "w").write(page("en", rels))
-    open(DIST + "/id/index.html", "w").write(page("id", rels))
+    open(DIST + "/index.html", "w").write(versioned(page("en", rels), DIST))
+    open(DIST + "/id/index.html", "w").write(versioned(page("id", rels), DIST))
     open(DIST + "/CNAME", "w").write("termx.kroombox.com\n")
     open(DIST + "/robots.txt", "w").write(f"User-agent: *\nAllow: /\nSitemap: {SITE}/sitemap.xml\n")
     open(DIST + "/sitemap.xml", "w").write(f'<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>{SITE}/</loc></url><url><loc>{SITE}/id/</loc></url></urlset>\n')
