@@ -155,3 +155,21 @@ export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; it
     </div>
   );
 }
+
+/** TermX logo: a prompt chevron and its mirror forming an X, over a cursor. */
+export function BrandMark({ size = 20 }: { size?: number }) {
+  return (
+    <svg className="brand-mark" width={size} height={size} viewBox="100 100 824 824" aria-hidden="true">
+      <defs>
+        <linearGradient id="tx-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#1b2228" /><stop offset="1" stopColor="#0a0d10" /></linearGradient>
+        <linearGradient id="tx-gr" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#62f2b3" /><stop offset="1" stopColor="#2bc283" /></linearGradient>
+      </defs>
+      <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#tx-bg)" />
+      <g fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="80">
+        <path d="M296 282 L462 466 L296 650" stroke="url(#tx-gr)" />
+        <path d="M728 282 L562 466 L728 650" stroke="#e6ebee" />
+      </g>
+      <rect x="430" y="716" width="164" height="54" rx="27" fill="url(#tx-gr)" />
+    </svg>
+  );
+}

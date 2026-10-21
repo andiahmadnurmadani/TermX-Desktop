@@ -24,7 +24,7 @@ import { LogsView, LogTabView } from "./components/LogsView";
 import { UpdateCard, useUpdateCheck } from "./components/UpdateCard";
 import { LockScreen, useAutoLock } from "./components/LockScreen";
 import { Palette } from "./components/Palette";
-import { DialogHost, Toasts } from "./components/ui";
+import { BrandMark, DialogHost, Toasts } from "./components/ui";
 
 const NAV: { v: View; icon: typeof Server; label: Key }[] = [
   { v: "hosts", icon: Server, label: "nav.hosts" },
@@ -83,7 +83,7 @@ export default function App() {
     <div className={"app" + (isMac ? " mac" : "") + (fullscreen ? " fs" : "")}>
       <aside className="sidebar">
         <div className="drag" data-tauri-drag-region>
-          <div className="brand" data-tauri-drag-region><span className="brand-mark">X</span>TermX</div>
+          <div className="brand" data-tauri-drag-region><BrandMark />TermX</div>
         </div>
         <nav className="nav">
           {NAV.map(({ v, icon: Icon, label }) => (

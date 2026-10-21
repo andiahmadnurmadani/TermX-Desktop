@@ -52,4 +52,46 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
-          includeUpdaterJson: true
+          includeUpdaterJson: false
+
+  # One job writes latest.json after every platform has uploaded, so parallel jobs can't drop entries.
+  updater-json:
+    needs: build
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build latest.json from the release's .sig assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          mkdir sigs && cd sigs
+          gh release download "$TAG" -R "$REPO" -p '*.sig'
+          python3 - <<'PY'
+          import glob, json, os, datetime
+          tag = os.environ["TAG"]; repo = os.environ["REPO"]
+          base = f"https://github.com/{repo}/releases/download/{tag}/"
+          kinds = [  # (file suffix, platform keys)
+              ("_aarch64.app.tar.gz", ["darwin-aarch64", "darwin-aarch64-app"]),
+              ("_x64.app.tar.gz", ["darwin-x86_64", "darwin-x86_64-app"]),
+              ("_amd64.AppImage", ["linux-x86_64", "linux-x86_64-appimage"]),
+              ("_amd64.deb", ["linux-x86_64-deb"]),
+              (".x86_64.rpm", ["linux-x86_64-rpm"]),
+              ("_x64-setup.exe", ["windows-x86_64", "windows-x86_64-nsis"]),
+              ("_x64_en-US.msi", ["windows-x86_64-msi"]),
+          ]
+          platforms = {}
+          for sig in sorted(glob.glob("*.sig")):
+              name = sig[:-4]
+              for suffix, keys in kinds:
+                  if name.endswith(suffix):
+                      entry = {"signature": open(sig).read().strip(), "url": base + name}
+                      for k in keys: platforms[k] = entry
+          doc = {"version": tag.lstrip("v"), "notes": f"TermX {tag}",
+                 "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                 "platforms": platforms}
+          json.dump(doc, open("latest.json", "w"), indent=2)
+          print(sorted(platforms))
+          PY
+          gh release upload "$TAG" latest.json --clobber -R "$REPO"

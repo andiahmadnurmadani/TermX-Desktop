@@ -58,7 +58,7 @@ svg { flex-shrink: 0; }
 .app.mac.fs .sidebar .drag { padding-left: 0; }
 .app.mac.fs .brand { display: flex; }
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 650; letter-spacing: -0.01em; font-size: 14px; padding: 0 6px; }
-.brand-mark { width: 20px; height: 20px; border-radius: 6px; background: var(--accent); color: var(--accent-fg); display: grid; place-items: center; font-weight: 800; font-size: 12px; }
+.brand-mark { flex-shrink: 0; display: block; }
 .app.mac:not(.fs) .brand { display: none; }
 .nav { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
 .nav button { display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; border-radius: var(--r-md); color: var(--text-2); font-weight: 500; transition: background .12s, color .12s; }
