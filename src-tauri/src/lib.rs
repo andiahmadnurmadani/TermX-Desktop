@@ -10,6 +10,7 @@ use std::time::Duration;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, Manager as _, State};
 use termx_core::keys::{self, GenKind};
+use termx_core::logs::{self, LoggingSink};
 use termx_core::model::*;
 use termx_core::overview::{self, Overview};
 use termx_core::secrets::{SecretBox, VaultMode};
@@ -265,7 +266,7 @@ fn workflow_preview(state: State<'_, AppState>, workflow: WorkflowDef, host_ids:
 }
 
 #[tauri::command]
-fn workflow_run(
+async fn workflow_run(
     app: AppHandle,
     state: State<'_, AppState>,
     workflow: WorkflowDef,
@@ -434,9 +435,11 @@ async fn key_generate(state: State<'_, AppState>, name: String, kind: String, co
 }
 
 #[tauri::command]
-fn key_import(state: State<'_, AppState>, name: String, text: String, passphrase: Option<String>) -> CmdResult<SshKeyRec> {
+async fn key_import(state: State<'_, AppState>, name: String, text: String, passphrase: Option<String>) -> CmdResult<SshKeyRec> {
     let pass = passphrase.filter(|p| !p.is_empty());
-    let rec = keys::import(&state.sb, &name, &text, pass.as_deref()).map_err(err)?;
+    let sb = state.sb.clone();
+    // encrypted keys go through a deliberately slow KDF: keep it off the UI thread
+    let rec = tokio::task::spawn_blocking(move || keys::import(&sb, &name, &text, pass.as_deref())).await.map_err(err)?.map_err(err)?;
     state.store.update(|v| v.keys.push(rec.clone())).map_err(err)?;
     Ok(rec)
 }
@@ -509,8 +512,11 @@ async fn ssh_open(
     rows: u32,
     data: Channel<InvokeResponseBody>,
 ) -> CmdResult<()> {
-    let tmux = state.store.host(&host_id).and_then(|h| if h.tmux { Some(h.tmux_name.clone()) } else { None });
-    let sink = Arc::new(ChannelSink { app, id: session_id.clone(), data });
+    let host = state.store.host(&host_id).ok_or("Host does not exist")?;
+    let tmux = if host.tmux { Some(host.tmux_name.clone()) } else { None };
+    let record = state.store.read(|v| v.settings.session_logs);
+    let sink: Arc<dyn SessionSink> = Arc::new(ChannelSink { app, id: session_id.clone(), data });
+    let sink = LoggingSink::new(sink, state.store.clone(), &session_id, &host, record);
     state.mgr.open_shell(session_id, &host_id, cols, rows, tmux, sink).map_err(err)
 }
 
@@ -546,6 +552,46 @@ struct ExecOut {
 async fn ssh_exec(state: State<'_, AppState>, host_id: String, command: String) -> CmdResult<ExecOut> {
     let r = state.mgr.exec(&host_id, &command, None, Duration::from_secs(30)).await.map_err(err)?;
     Ok(ExecOut { stdout: r.stdout, stderr: r.stderr, exit: r.exit })
+}
+
+// ------------------------------------------------------------------ logs
+
+#[tauri::command]
+fn logs_list(state: State<'_, AppState>) -> CmdResult<Vec<SessionLog>> {
+    state.store.logs_list(1000).map_err(err)
+}
+
+#[tauri::command]
+fn logs_delete(state: State<'_, AppState>, id: Option<String>) -> CmdResult<()> {
+    let ids = state.store.logs_delete(id.as_deref()).map_err(err)?;
+    logs::remove_transcripts(&state.store, &ids);
+    Ok(())
+}
+
+/// Raw transcript bytes (terminal output incl. escape codes), at most the last 8 MB.
+#[tauri::command]
+async fn log_transcript(state: State<'_, AppState>, id: String) -> CmdResult<tauri::ipc::Response> {
+    let path = logs::transcript_path(&state.store, &id).ok_or("Invalid log id")?;
+    let bytes = tokio::task::spawn_blocking(move || logs::read_transcript(&path, 8 * 1024 * 1024))
+        .await
+        .map_err(err)?
+        .map_err(|_| "No transcript was recorded for this session".to_string())?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Save a transcript; `plain` strips terminal escape codes.
+#[tauri::command]
+async fn log_export(state: State<'_, AppState>, id: String, path: String, plain: bool) -> CmdResult<()> {
+    let src = logs::transcript_path(&state.store, &id).ok_or("Invalid log id")?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        let bytes = logs::read_transcript(&src, u64::MAX)?;
+        let out = if plain { logs::strip_ansi(&bytes) } else { bytes };
+        write_private(&path, &out)?;
+        Ok(())
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)
 }
 
 // ------------------------------------------------------------------ SFTP
@@ -715,10 +761,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             let store = Arc::new(Store::open(&data_dir)?);
+            let _ = store.logs_mark_interrupted();
             let sb = Arc::new(SecretBox::open(store.clone())?);
             let prompts = Arc::new(Prompts::default());
             let ui = Arc::new(TauriUi { app: app.handle().clone(), prompts: prompts.clone() });
@@ -779,6 +828,10 @@ pub fn run() {
             workflow_run_get,
             workflow_runs_clear,
             host_overview,
+            logs_list,
+            logs_delete,
+            log_transcript,
+            log_export,
         ])
         .run(tauri::generate_context!())
         .expect("error while running TermX");

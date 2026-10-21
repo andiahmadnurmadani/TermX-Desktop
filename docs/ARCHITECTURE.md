@@ -15,6 +15,7 @@
 │ sftp      transfers, editor                     │
 │ workflow  engine, preview, masking              │
 │ overview  agentless POSIX probe + parser        │
+│ logs      session history + transcripts         │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -31,6 +32,7 @@
   - Host keys: `host_key_pins`.
   - Workspaces: `workspaces`, `workspace_panes`.
   - Workflows: `workflow_definitions`, `workflow_steps`, `workflow_runs`, `workflow_step_runs` (the last 300 runs are kept).
+  - Session history: `session_logs` (the last 1000 sessions are kept); transcripts are raw files in `logs/<id>.log` (0600, capped at 20 MB each).
   - `sync_objects` is reserved for future peer-to-peer sync.
 
 ## Vault
@@ -63,4 +65,12 @@
 
 ## Overview
 
-A single read-only POSIX script runs via `sh -s`. It reads procfs on Linux and sysctl/vm_stat on macOS/BSD, prints `key=value` lines, and `overview::parse` turns them into numbers. Nothing is installed on the server.
+A single read-only POSIX script runs via `sh -s`. It reads procfs on Linux and sysctl/vm_stat on macOS/BSD, prints `key=value` lines, and `overview::parse` turns them into numbers. CPU % comes from two `/proc/stat` samples 0.5 s apart (or `ps` on macOS). Nothing is installed on the server. Live mode re-runs the probe on an interval over the already-open connection and skips hosts whose last probe failed, so it never re-prompts for passwords.
+
+## Logs
+
+`logs::LoggingSink` wraps the UI sink of every shell session. It writes one `session_logs` row per session (status, connect/end time, reconnects, bytes) on each state change, and, when *Record terminal output* is on, appends the raw server output to `logs/<id>.log`. Transcripts are not encrypted; turning recording off only stops new recordings.
+
+## Updates
+
+Releases are built by CI (`tauri-action`) with `createUpdaterArtifacts`, signed with the updater key (`TAURI_SIGNING_PRIVATE_KEY` secret) and published with a `latest.json`. The app checks `releases/latest/download/latest.json`, verifies the signature with the public key in `tauri.conf.json`, installs and relaunches.

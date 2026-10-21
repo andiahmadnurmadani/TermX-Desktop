@@ -10,6 +10,9 @@ echo "kernel=$(uname -r 2>/dev/null)"
 if [ -r /proc/uptime ]; then echo "uptime=$(cut -d' ' -f1 /proc/uptime)"; else
   b=$(sysctl -n kern.boottime 2>/dev/null | sed -n 's/^{ *sec = \([0-9]*\).*/\1/p'); [ -n "$b" ] && echo "uptime=$(( $(date +%s) - b ))"; fi
 if [ -r /proc/loadavg ]; then echo "load=$(cut -d' ' -f1-3 /proc/loadavg)"; else echo "load=$(sysctl -n vm.loadavg 2>/dev/null | tr -d '{}')"; fi
+if [ -r /proc/stat ]; then a=$(head -n1 /proc/stat); sleep 0.5 2>/dev/null || sleep 1; b=$(head -n1 /proc/stat)
+  printf '%s\n%s\n' "$a" "$b" | awk 'NR==1{for(i=2;i<=NF;i++)t1+=$i; i1=$5+$6} NR==2{for(i=2;i<=NF;i++)t2+=$i; i2=$5+$6} END{d=t2-t1; if(d>0) printf "cpu_pct=%.1f\n", 100*(d-(i2-i1))/d}'
+else ps -A -o %cpu= 2>/dev/null | awk -v n="$(sysctl -n hw.ncpu 2>/dev/null || echo 1)" '{s+=$1} END{if(n>0) printf "cpu_pct=%.1f\n", s/n}'; fi
 echo "cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null)"
 if [ -r /proc/meminfo ]; then awk '/^MemTotal:/{print "mem_total_kb="$2} /^MemAvailable:/{print "mem_avail_kb="$2}' /proc/meminfo; else
   t=$(sysctl -n hw.memsize 2>/dev/null); [ -n "$t" ] && echo "mem_total_kb=$((t/1024))"
@@ -28,6 +31,8 @@ pub struct Overview {
     pub uptime_sec: Option<u64>,
     pub load: Option<[f32; 3]>,
     pub cpus: Option<u32>,
+    /// Busy CPU over all cores, 0–100.
+    pub cpu_pct: Option<f32>,
     pub mem_total_kb: Option<u64>,
     pub mem_avail_kb: Option<u64>,
     pub disk_total_kb: Option<u64>,
@@ -55,6 +60,7 @@ pub fn parse(out: &str) -> Overview {
                 }
             }
             "cpus" => o.cpus = v.parse().ok(),
+            "cpu_pct" => o.cpu_pct = v.replace(',', ".").parse::<f32>().ok().map(|p| p.clamp(0.0, 100.0)),
             "mem_total_kb" => o.mem_total_kb = v.parse().ok(),
             "mem_avail_kb" => o.mem_avail_kb = v.parse().ok(),
             "disk_total_kb" => o.disk_total_kb = v.parse().ok(),
@@ -75,6 +81,8 @@ mod tests {
         assert_eq!(o.uptime_sec, Some(12345));
         assert_eq!(o.load, Some([0.52, 0.40, 0.31]));
         assert_eq!(o.failed_units, Some(0));
+        assert_eq!(parse("cpu_pct=12.5\n").cpu_pct, Some(12.5));
+        assert_eq!(parse("cpu_pct=140\n").cpu_pct, Some(100.0));
     }
     #[test]
     fn parses_macos_and_gaps() {

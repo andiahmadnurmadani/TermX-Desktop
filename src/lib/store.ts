@@ -1,7 +1,7 @@
 import { create } from "zustand";
-import { api, errText, uid, type AppInfo, type Layout, type SessionState, type Settings, type Vault, type Workspace } from "./api";
+import { api, errText, uid, type AppInfo, type Layout, type SessionLog, type SessionState, type Settings, type Vault, type Workspace } from "./api";
 
-export type View = "hosts" | "workspaces" | "workflows" | "overview" | "keys" | "snippets" | "settings";
+export type View = "hosts" | "workspaces" | "workflows" | "overview" | "logs" | "keys" | "snippets" | "settings";
 
 /** A terminal pane inside a grid tab. `sid` is the SSH session id. */
 export interface PaneRef { sid: string; hostId: string }
@@ -12,12 +12,14 @@ export interface Grid {
   focus: number; max: number | null;
 }
 export interface Tab {
-  id: string; kind: "term" | "sftp" | "grid" | "run"; title: string;
+  id: string; kind: "term" | "sftp" | "grid" | "run" | "log"; title: string;
   /** term/sftp */
   hostId: string;
   grid?: Grid;
   /** run tabs: workflow run id */
   runId?: string;
+  /** log tabs: the recorded session */
+  log?: SessionLog;
 }
 export interface SessionInfo { state: SessionState; message?: string }
 export interface Toast { id: string; text: string; kind: "info" | "error" | "ok" }
@@ -44,6 +46,7 @@ interface S {
   setPaneHost: (tabId: string, idx: number, hostId: string | null) => void;
   saveGrid: (tabId: string, name: string) => Promise<void>;
   openRun: (runId: string, title: string) => void;
+  openLog: (log: SessionLog) => void;
   closeTab: (id: string) => void;
   patchSession: (sid: string, p: SessionInfo) => void;
   toast: (text: string, kind?: Toast["kind"]) => void;
@@ -156,6 +159,14 @@ export const useStore = create<S>((set, get) => ({
     const existing = get().tabs.find((t) => t.kind === "run" && t.runId === runId);
     if (existing) return set({ active: existing.id });
     const tab: Tab = { id: uid(), kind: "run", hostId: "", title, runId };
+    set((s) => ({ tabs: [...s.tabs, tab], active: tab.id }));
+  },
+
+  openLog: (log) => {
+    const existing = get().tabs.find((t) => t.kind === "log" && t.log?.id === log.id);
+    if (existing) return set({ active: existing.id });
+    const time = new Date(log.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const tab: Tab = { id: uid(), kind: "log", hostId: log.hostId, title: `${log.hostLabel} · ${time}`, log };
     set((s) => ({ tabs: [...s.tabs, tab], active: tab.id }));
   },
 

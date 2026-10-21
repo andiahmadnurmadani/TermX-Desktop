@@ -109,6 +109,9 @@ impl Engine {
         confirmed: bool,
         sink: Arc<dyn WorkflowSink>,
     ) -> Result<String> {
+        // Must be called from inside the async runtime (a sync Tauri command runs on the
+        // main thread, where tokio::spawn would panic and abort the app).
+        let rt = tokio::runtime::Handle::try_current().map_err(|_| anyhow::anyhow!("Workflow engine is not running inside the async runtime"))?;
         let preview = self.preview(&def, &host_ids, &params)?;
         if preview.needs_confirm && !confirmed {
             bail!("This run needs confirmation (risky commands or production hosts)");
@@ -165,7 +168,7 @@ impl Engine {
         self.running.lock().unwrap().insert(run_id.clone(), cancel.clone());
         let this = self.clone();
         let rid = run_id.clone();
-        tokio::spawn(async move {
+        rt.spawn(async move {
             let limit = Arc::new(tokio::sync::Semaphore::new(def.parallel.clamp(1, 16) as usize));
             let secrets = Arc::new(secrets);
             let rendered = Arc::new(rendered);

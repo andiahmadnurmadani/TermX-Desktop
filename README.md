@@ -12,7 +12,11 @@ Tauri 2 (Rust) + React + xterm.js. MIT licensed. No account, no cloud, no teleme
   - Per-step timeout, accepted exit codes, expected output and continue-on-error.
   - Hosts run in parallel, with a live host × step matrix, cancellation and full run history.
   - Risky commands and production hosts require an explicit confirmation.
-- **Overview**: an agentless health snapshot over SSH covering uptime, load, memory, disk and failed systemd units. Nothing is installed on the servers.
+- **Overview**: an agentless health snapshot over SSH covering uptime, CPU, load, memory, disk and failed systemd units. Nothing is installed on the servers. Switch to **Live** to refresh every 5 s – 1 min with CPU sparklines.
+- **Logs**: every terminal session is listed with host, start time, duration, data transferred, reconnects and errors. Optionally, the terminal output is recorded so you can replay, search and export it (`.txt` / `.log`).
+- **Hosts with OS icons**: the remote OS is detected on first connect (Ubuntu, Debian, macOS, Windows, Fedora, Alpine, Raspberry Pi OS, …).
+- **Personalisation**: app font, interface size (90–150 %), terminal font, weight, letter spacing, line height, cursor, themes and accent colour.
+- **Auto-update**: TermX checks GitHub Releases on start and installs signed updates in place with one click.
 - **SFTP**: a file browser with drag & drop, folder upload/download and an inline text editor.
 - **Credential vault**: passwords and private keys are encrypted with AES-256-GCM.
   - By default the data key lives in the OS keychain (Keychain / Credential Manager / Secret Service).

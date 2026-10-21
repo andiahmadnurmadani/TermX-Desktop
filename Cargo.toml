@@ -7,4 +7,4 @@ lto = "thin"
 codegen-units = 4
 strip = true
 opt-level = "s"
-panic = "abort"
+# unwind (default): a panic in one task or command must not take the whole app down

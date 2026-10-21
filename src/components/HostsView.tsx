@@ -6,6 +6,7 @@ import { useT } from "../lib/i18n";
 import { ago } from "../lib/util";
 import { confirmDialog, promptDialog } from "../lib/dialogs";
 import { ContextMenu, EmptyState, type MenuItem } from "./ui";
+import { OsIcon } from "../lib/os";
 
 export const hostColor = (c: number) => `var(--c${c % 8})`;
 
@@ -40,7 +41,7 @@ export function HostCard({ host, i }: { host: Host; i: number }) {
         onKeyDown={(e) => e.key === "Enter" && openTerm(host.id)}
         onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); }}
       >
-        <div className="avatar"><Server size={18} /></div>
+        <OsIcon host={host} />
         <div className="meta">
           <div className="name">{host.label}<EnvBadge env={host.environment} /></div>
           <div className="sub">{host.username}@{host.hostname}{host.port !== 22 ? `:${host.port}` : ""}</div>
@@ -104,26 +105,33 @@ export function HostsView() {
   return (
     <div className="page"><div className="page-inner">
       <div className="page-head">
-        <h1>{t("hosts.title")}</h1>
-        <div className="search">
-          <Search size={15} />
-          <input className="input" placeholder={t("hosts.search")} value={q} onChange={(e) => setQ(e.target.value)} spellCheck={false} />
-        </div>
+        <div className="title"><h1>{t("hosts.title")}</h1><span className="count-sub">{t("hosts.count", { n: hosts.length })}</span></div>
         <div className="sp" />
-        <button className="btn" onClick={newGroup}><FolderPlus size={15} />{t("hosts.newGroup")}</button>
-        <button className="btn primary" onClick={() => openHostDialog(null)}><Plus size={15} />{t("hosts.new")}</button>
+        <div className="acts">
+          <button className="btn" onClick={newGroup}><FolderPlus size={15} /><span className="lbl">{t("hosts.newGroup")}</span></button>
+          <button className="btn primary" onClick={() => openHostDialog(null)}><Plus size={15} /><span className="lbl">{t("hosts.new")}</span></button>
+        </div>
       </div>
 
-      {groups.length > 0 && (
-        <div className="chips" style={{ marginBottom: 6 }}>
-          <button className={"chip" + (groupId === "all" ? " on" : "")} onClick={() => setGroupId("all")}>{t("hosts.all")}</button>
-          {groups.map((g) => (
-            <button key={g.id} className={"chip" + (groupId === g.id ? " on" : "")} onClick={() => setGroupId(g.id)}>
-              {g.name}
-              {groupId === g.id && <span title={t("hosts.deleteGroup")} onClick={(e) => { e.stopPropagation(); delGroup(g.id); }}><X size={12} /></span>}
-            </button>
-          ))}
-          <button className={"chip" + (groupId === "none" ? " on" : "")} onClick={() => setGroupId("none")}>{t("hosts.ungrouped")}</button>
+      {hosts.length > 0 && (
+        <div className="toolbar">
+          <div className="search">
+            <Search size={15} />
+            <input className="input" placeholder={t("hosts.search")} value={q} onChange={(e) => setQ(e.target.value)} spellCheck={false} />
+            {q && <button className="icon-btn clear" title={t("common.clear")} onClick={() => setQ("")}><X size={13} /></button>}
+          </div>
+          {groups.length > 0 && (
+            <div className="chips">
+              <button className={"chip" + (groupId === "all" ? " on" : "")} onClick={() => setGroupId("all")}>{t("hosts.all")}</button>
+              {groups.map((g) => (
+                <button key={g.id} className={"chip" + (groupId === g.id ? " on" : "")} onClick={() => setGroupId(g.id)}>
+                  {g.name}
+                  {groupId === g.id && <span title={t("hosts.deleteGroup")} onClick={(e) => { e.stopPropagation(); delGroup(g.id); }}><X size={12} /></span>}
+                </button>
+              ))}
+              <button className={"chip" + (groupId === "none" ? " on" : "")} onClick={() => setGroupId("none")}>{t("hosts.ungrouped")}</button>
+            </div>
+          )}
         </div>
       )}
 

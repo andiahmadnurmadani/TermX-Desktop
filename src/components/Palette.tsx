@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, FolderOpen, KeyRound, LayoutGrid, ListChecks, Play, Plus, Server, Settings, Terminal, Workflow, Zap } from "lucide-react";
+import { Activity, FolderOpen, KeyRound, LayoutGrid, ListChecks, Play, Plus, ScrollText, Settings, Terminal, Workflow, Zap } from "lucide-react";
+import { OsIcon } from "../lib/os";
 import { useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
 
@@ -15,9 +16,9 @@ export function Palette() {
   const items = useMemo<Item[]>(() => {
     const s = q.trim().toLowerCase();
     const out: Item[] = [];
-    for (const tab of tabs) out.push({ id: "t" + tab.id, group: t("palette.tabs"), label: tab.title, icon: tab.kind === "term" ? <Terminal size={15} /> : tab.kind === "grid" ? <LayoutGrid size={15} /> : tab.kind === "run" ? <ListChecks size={15} /> : <FolderOpen size={15} />, run: () => setActive(tab.id) });
+    for (const tab of tabs) out.push({ id: "t" + tab.id, group: t("palette.tabs"), label: tab.title, icon: tab.kind === "term" ? <Terminal size={15} /> : tab.kind === "grid" ? <LayoutGrid size={15} /> : tab.kind === "run" ? <ListChecks size={15} /> : tab.kind === "log" ? <ScrollText size={15} /> : <FolderOpen size={15} />, run: () => setActive(tab.id) });
     for (const h of vault?.hosts ?? []) {
-      out.push({ id: "h" + h.id, group: t("palette.hosts"), label: h.label, sub: `${h.username}@${h.hostname}`, icon: <Server size={15} />, run: () => openTerm(h.id) });
+      out.push({ id: "h" + h.id, group: t("palette.hosts"), label: h.label, sub: `${h.username}@${h.hostname}`, icon: <OsIcon host={h} size={18} />, run: () => openTerm(h.id) });
       out.push({ id: "g" + h.id, group: t("palette.hosts"), label: `${h.label} · ${t("hosts.openInWorkspace")}`, sub: `${h.username}@${h.hostname}`, icon: <LayoutGrid size={15} />, run: () => useStore.getState().openHostInGrid(h.id) });
       out.push({ id: "f" + h.id, group: t("palette.hosts"), label: `${h.label} · SFTP`, sub: `${h.username}@${h.hostname}`, icon: <FolderOpen size={15} />, run: () => openSftp(h.id) });
     }
@@ -26,6 +27,7 @@ export function Palette() {
       { id: "a0", group: t("palette.actions"), label: t("ws.newEmpty"), icon: <LayoutGrid size={15} />, run: () => openGrid() },
       { id: "a5", group: t("palette.actions"), label: t("nav.workflows"), icon: <Workflow size={15} />, run: () => setView("workflows") },
       { id: "a6", group: t("palette.actions"), label: t("nav.overview"), icon: <Activity size={15} />, run: () => setView("overview") },
+      { id: "a7", group: t("palette.actions"), label: t("palette.logs"), icon: <ScrollText size={15} />, run: () => setView("logs") },
       { id: "a1", group: t("palette.actions"), label: t("palette.newHost"), icon: <Plus size={15} />, run: () => openHostDialog(null) },
       { id: "a2", group: t("palette.actions"), label: t("nav.keys"), icon: <KeyRound size={15} />, run: () => setView("keys") },
       { id: "a3", group: t("palette.actions"), label: t("nav.snippets"), icon: <Zap size={15} />, run: () => setView("snippets") },

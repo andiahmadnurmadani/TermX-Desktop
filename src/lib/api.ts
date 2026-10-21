@@ -17,6 +17,13 @@ export interface Settings {
   appearance: "system" | "dark" | "light"; terminalTheme: string; fontFamily: string; fontSize: number;
   lineHeight: number; scrollback: number; cursorStyle: "block" | "bar" | "underline"; cursorBlink: boolean;
   copyOnSelect: boolean; language: "en" | "id"; accent: string; autoLockMin: number;
+  uiFont: string; uiScale: number; fontWeight: number; fontWeightBold: number; letterSpacing: number;
+  sessionLogs: boolean; overviewLive: boolean; overviewInterval: number; checkUpdates: boolean;
+}
+export interface SessionLog {
+  id: string; hostId: string; hostLabel: string; username: string; hostname: string; port: number;
+  startedAt: number; connectedAt: number; endedAt: number; status: SessionState; message: string;
+  reconnects: number; bytes: number; transcript: boolean;
 }
 export type Layout = "1" | "2v" | "2h" | "4";
 export interface Workspace { id: string; name: string; layout: Layout; colSplit: number; rowSplit: number; panes: (string | null)[]; createdAt: number }
@@ -38,7 +45,7 @@ export interface Preview {
 }
 export interface WfEvent { runId: string; kind: "step" | "output" | "run"; hostId: string; idx: number; status: string; stream: "out" | "err" | ""; chunk: string; exitCode: number | null }
 export interface Overview {
-  os: string | null; kernel: string | null; uptimeSec: number | null; load: [number, number, number] | null; cpus: number | null;
+  os: string | null; kernel: string | null; uptimeSec: number | null; load: [number, number, number] | null; cpus: number | null; cpuPct: number | null;
   memTotalKb: number | null; memAvailKb: number | null; diskTotalKb: number | null; diskUsedKb: number | null; failedUnits: number | null;
 }
 export interface VaultStatus { mode: "keychain" | "master"; locked: boolean }
@@ -108,6 +115,10 @@ export const api = {
   workflowRunGet: (id: string) => invoke<WorkflowRun | null>("workflow_run_get", { id }),
   workflowRunsClear: (workflowId: string | null) => invoke<void>("workflow_runs_clear", { workflowId }),
   hostOverview: (hostId: string) => invoke<Overview>("host_overview", { hostId }),
+  logsList: () => invoke<SessionLog[]>("logs_list"),
+  logsDelete: (id: string | null) => invoke<void>("logs_delete", { id }),
+  logTranscript: (id: string) => invoke<ArrayBuffer>("log_transcript", { id }),
+  logExport: (id: string, path: string, plain: boolean) => invoke<void>("log_export", { id, path, plain }),
 };
 
 export const events = {

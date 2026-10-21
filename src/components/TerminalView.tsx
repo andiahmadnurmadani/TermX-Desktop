@@ -23,6 +23,9 @@ function applySettings(term: Terminal, s: Settings, dark: boolean) {
   term.options.fontFamily = fontStack(s.fontFamily);
   term.options.fontSize = s.fontSize;
   term.options.lineHeight = s.lineHeight;
+  term.options.fontWeight = (s.fontWeight || 400) as Terminal["options"]["fontWeight"];
+  term.options.fontWeightBold = (s.fontWeightBold || 700) as Terminal["options"]["fontWeightBold"];
+  term.options.letterSpacing = s.letterSpacing || 0;
   term.options.cursorStyle = s.cursorStyle;
   term.options.cursorBlink = s.cursorBlink;
   term.options.scrollback = s.scrollback;
@@ -73,7 +76,7 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
 
       const term = new Terminal({
         allowProposedApi: true, macOptionIsMeta: false, scrollOnUserInput: true, smoothScrollDuration: 0,
-        fontWeight: "400", fontWeightBold: "700", letterSpacing: 0, rightClickSelectsWord: false,
+        rightClickSelectsWord: false,
         cursorInactiveStyle: "outline", drawBoldTextInBrightColors: true,
       });
       applySettings(term, s, darkRef.current);
@@ -158,8 +161,14 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
-    applySettings(term, settings, dark);
-    requestAnimationFrame(() => { try { fitRef.current?.fit(); } catch { /* ignore */ } });
+    let stale = false;
+    // measure with the real font, not the fallback, or the cell grid ends up too wide/narrow
+    document.fonts.load(`${settings.fontSize}px "${settings.fontFamily}"`).catch(() => {}).finally(() => {
+      if (stale || termRef.current !== term) return;
+      applySettings(term, settings, dark);
+      requestAnimationFrame(() => { try { fitRef.current?.fit(); } catch { /* ignore */ } });
+    });
+    return () => { stale = true; };
   }, [settings, dark]);
 
   // refit + focus when shown

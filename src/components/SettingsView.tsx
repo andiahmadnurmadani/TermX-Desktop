@@ -1,15 +1,59 @@
 import { useEffect, useState } from "react";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { Archive, Download, KeyRound, Lock, Trash2, Upload } from "lucide-react";
+import { ArrowUpCircle, Archive, Download, KeyRound, Lock, RefreshCw, ScrollText, Trash2, Upload } from "lucide-react";
 import { api, errText } from "../lib/api";
 import { useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
 import { THEME_IDS, THEME_NAMES, terminalTheme } from "../lib/themes";
-import { useResolvedDark } from "../lib/theme";
+import { uiFontStack, useResolvedDark } from "../lib/theme";
+import { useUpdater } from "../lib/updater";
 import { Field, Modal, PasswordInput, Seg, Switch } from "./ui";
 
 const ACCENTS = ["#3ddc97", "#5aa9ff", "#b58cff", "#ff8ab3", "#ffb35c", "#f2d45c", "#5fd7e0", "#ff6b6b"];
-const FONTS = ["JetBrains Mono", "Menlo", "SF Mono", "Consolas", "Cascadia Code", "Fira Code", "Source Code Pro", "DejaVu Sans Mono", "Ubuntu Mono", "monospace"];
+const FONTS = ["JetBrains Mono", "Menlo", "SF Mono", "Monaco", "Consolas", "Cascadia Code", "Fira Code", "Source Code Pro", "IBM Plex Mono", "Hack", "DejaVu Sans Mono", "Ubuntu Mono"];
+const TERM_FONTS = FONTS.map((f) => ({ v: f, label: f }));
+const UI_FONTS: { v: string; label: string }[] = [
+  { v: "inter", label: "Inter" }, { v: "system", label: "System" }, { v: "SF Pro Text", label: "SF Pro" }, { v: "Segoe UI", label: "Segoe UI" },
+  { v: "Roboto", label: "Roboto" }, { v: "Ubuntu", label: "Ubuntu" }, { v: "Helvetica Neue", label: "Helvetica Neue" }, { v: "Noto Sans", label: "Noto Sans" },
+];
+
+/** Preset list plus a free-text "custom" entry for any installed font. */
+function FontPicker({ value, presets, onChange, mono }: { value: string; presets: { v: string; label: string }[]; onChange: (v: string) => void; mono?: boolean }) {
+  const known = presets.some((p) => p.v === value);
+  const [custom, setCustom] = useState(!known);
+  const [txt, setTxt] = useState(known ? "" : value);
+  useEffect(() => { const k = presets.some((p) => p.v === value); setCustom(!k); if (!k) setTxt(value); }, [value, presets]);
+  return (
+    <div className="font-picker">
+      <select className="select" value={custom ? "__custom" : value} onChange={(e) => {
+        if (e.target.value === "__custom") { setCustom(true); setTxt(""); } else { setCustom(false); onChange(e.target.value); }
+      }}>
+        {presets.map((p) => <option key={p.v} value={p.v} style={{ fontFamily: p.v === "inter" ? undefined : p.v === "system" ? undefined : `"${p.v}"` }}>{p.label}</option>)}
+        <option value="__custom">Custom…</option>
+      </select>
+      {custom && (
+        <input className={"input" + (mono ? " mono" : "")} autoFocus placeholder="Font name" value={txt} spellCheck={false}
+          onChange={(e) => setTxt(e.target.value)} onBlur={() => txt.trim() && txt.trim() !== value && onChange(txt.trim())}
+          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
+      )}
+    </div>
+  );
+}
+
+function UpdateRow() {
+  const t = useT();
+  const { status, update, error, check, open } = useUpdater();
+  const [checked, setChecked] = useState(false);
+  const run = async () => { setChecked(true); const st = await check(true); if (st === "available") open(); };
+  return (
+    <Row title={t("set.version") + " " + (useStore.getState().info?.version ?? "")}
+      hint={status === "checking" ? "…" : update && status !== "none" ? t("upd.available", { v: update.version }) : checked && status === "none" ? t("set.upToDate") : checked && status === "error" ? t("upd.failed", { e: error }) : undefined}>
+      {update && (status === "available" || status === "error")
+        ? <button className="btn primary" onClick={open}><ArrowUpCircle size={14} />{t("upd.now")}</button>
+        : <button className="btn" disabled={status === "checking" || status === "downloading" || status === "installing"} onClick={run}><RefreshCw size={14} className={status === "checking" ? "spin" : ""} />{t("set.checkNow")}</button>}
+    </Row>
+  );
+}
 
 function Row({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return <div className="setting"><div className="meta"><div>{title}</div>{hint && <small>{hint}</small>}</div><div className="ctl">{children}</div></div>;
@@ -84,12 +128,12 @@ function PasswordDialog({ d, onClose }: { d: PwDialog; onClose: () => void }) {
 
 export function SettingsView() {
   const t = useT();
-  const { vault, saveSettings, run, info, toast } = useStore();
+  const { vault, saveSettings, run, info, toast, setView } = useStore();
   const dark = useResolvedDark();
   const s = vault!.settings;
-  const [fontText, setFontText] = useState(s.fontFamily);
   const [dlg, setDlg] = useState<PwDialog | null>(null);
   const status = vault!.status;
+  const termTh = terminalTheme(s.terminalTheme, dark, s.accent);
   const startBackup = async () => {
     const p = await saveDialog({ defaultPath: `termx-backup-${new Date().toISOString().slice(0, 10)}.termx`, filters: [{ name: "TermX backup", extensions: ["termx"] }] });
     if (p) setDlg({ kind: "backup", path: p });
@@ -98,7 +142,6 @@ export function SettingsView() {
     const p = await openDialog({ multiple: false, filters: [{ name: "TermX backup", extensions: ["termx", "json"] }] });
     if (typeof p === "string") setDlg({ kind: "restore", path: p });
   };
-  useEffect(() => setFontText(s.fontFamily), [s.fontFamily]);
 
   const doExport = async () => {
     const p = await saveDialog({ defaultPath: "termx-hosts.json", filters: [{ name: "JSON", extensions: ["json"] }] });
@@ -117,7 +160,7 @@ export function SettingsView() {
       <div className="page-head"><h1>{t("set.title")}</h1></div>
 
       <div className="section">
-        <h2>{t("set.appearance")}</h2>
+        <h2>{t("set.interface")}</h2>
         <div className="panel list">
           <Row title={t("set.theme")}>
             <Seg value={s.appearance} onChange={(v) => saveSettings({ appearance: v })} options={[{ v: "system", label: t("set.system") }, { v: "dark", label: t("set.dark") }, { v: "light", label: t("set.light") }]} />
@@ -127,6 +170,17 @@ export function SettingsView() {
               {ACCENTS.map((c) => <button key={c} className={"swatch" + (s.accent === c ? " on" : "")} style={{ background: c }} onClick={() => saveSettings({ accent: c })} />)}
             </div>
           </Row>
+          <Row title={t("set.uiFont")} hint={t("set.uiFontHint")}>
+            <FontPicker value={s.uiFont} presets={UI_FONTS} onChange={(v) => saveSettings({ uiFont: v })} />
+          </Row>
+          <Row title={t("set.uiScale")} hint={t("set.uiScaleHint")}>
+            <Seg value={String(s.uiScale)} onChange={(v) => saveSettings({ uiScale: Number(v) })} options={[
+              { v: "90", label: "90%" }, { v: "100", label: "100%" }, { v: "110", label: "110%" }, { v: "125", label: "125%" }, { v: "150", label: "150%" },
+            ]} />
+          </Row>
+          <div className="ui-preview" style={{ fontFamily: uiFontStack(s.uiFont) }}>
+            <b>The quick brown fox</b> jumps over the lazy dog · 0123456789
+          </div>
           <Row title={t("set.language")}>
             <Seg value={s.language} onChange={(v) => saveSettings({ language: v })} options={[{ v: "en", label: "English" }, { v: "id", label: "Indonesia" }]} />
           </Row>
@@ -153,12 +207,19 @@ export function SettingsView() {
               })}
             </div>
           </div>
-          <Row title={t("set.font")}>
-            <input className="input" list="fonts" value={fontText} onChange={(e) => setFontText(e.target.value)} onBlur={() => fontText.trim() && saveSettings({ fontFamily: fontText.trim() })} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} spellCheck={false} />
-            <datalist id="fonts">{FONTS.map((f) => <option key={f} value={f} />)}</datalist>
+          <Row title={t("set.font")} hint={t("set.termFontHint")}>
+            <FontPicker mono value={s.fontFamily} presets={TERM_FONTS} onChange={(v) => saveSettings({ fontFamily: v })} />
           </Row>
           <Row title={t("set.fontSize")}>
             <NumInput value={s.fontSize} min={9} max={28} width={90} onCommit={(n) => saveSettings({ fontSize: n })} />
+          </Row>
+          <Row title={t("set.fontWeight")}>
+            <Seg value={String(s.fontWeight)} onChange={(v) => saveSettings({ fontWeight: Number(v), fontWeightBold: Math.min(900, Math.max(700, Number(v) + 300)) })} options={[
+              { v: "300", label: "300" }, { v: "400", label: "400" }, { v: "500", label: "500" }, { v: "600", label: "600" },
+            ]} />
+          </Row>
+          <Row title={t("set.letterSpacing")}>
+            <NumInput value={s.letterSpacing} min={-2} max={6} step={0.5} width={90} onCommit={(n) => saveSettings({ letterSpacing: n })} />
           </Row>
           <Row title={t("set.lineHeight")}>
             <NumInput value={s.lineHeight} min={1} max={2} step={0.05} width={90} onCommit={(n) => saveSettings({ lineHeight: n })} />
@@ -169,8 +230,32 @@ export function SettingsView() {
           <Row title={t("set.cursor")}>
             <Seg value={s.cursorStyle} onChange={(v) => saveSettings({ cursorStyle: v })} options={[{ v: "bar", label: t("set.cursorBar") }, { v: "block", label: t("set.cursorBlock") }, { v: "underline", label: t("set.cursorUnderline") }]} />
           </Row>
+          <div className="font-preview" style={{
+            fontFamily: `"${s.fontFamily}", "JetBrains Mono", Menlo, Consolas, monospace`, fontSize: s.fontSize, lineHeight: s.lineHeight,
+            fontWeight: s.fontWeight, letterSpacing: s.letterSpacing, background: termTh.background, color: termTh.foreground,
+          }}>
+            <span style={{ color: termTh.green }}>deploy@web-01</span>:<span style={{ color: termTh.blue }}>~/app</span>$ git log --oneline -2<br />
+            <span style={{ color: termTh.yellow }}>3f9c2a1</span> <b style={{ fontWeight: s.fontWeightBold }}>Fix</b> worker timeout {"->"} 30s {"{}"} [] 0O 1lI<br />
+            <span style={{ color: termTh.yellow }}>a41be07</span> Add health check <span style={{ color: termTh.magenta }}>#128</span>
+          </div>
           <Row title={t("set.cursorBlink")}><Switch on={s.cursorBlink} onChange={(b) => saveSettings({ cursorBlink: b })} /></Row>
           <Row title={t("set.copyOnSelect")}><Switch on={s.copyOnSelect} onChange={(b) => saveSettings({ copyOnSelect: b })} /></Row>
+        </div>
+      </div>
+
+      <div className="section">
+        <h2>{t("nav.logs")}</h2>
+        <div className="panel list">
+          <Row title={t("logs.record")} hint={t("logs.recordHint")}><Switch on={s.sessionLogs} onChange={(b) => saveSettings({ sessionLogs: b })} /></Row>
+          <Row title={t("nav.logs")} hint={t("set.logsHint")}><button className="btn" onClick={() => setView("logs")}><ScrollText size={14} />{t("logs.title")}</button></Row>
+        </div>
+      </div>
+
+      <div className="section">
+        <h2>{t("set.updates")}</h2>
+        <div className="panel list">
+          <UpdateRow />
+          <Row title={t("set.checkUpdates")} hint={t("set.checkUpdatesHint")}><Switch on={s.checkUpdates} onChange={(b) => saveSettings({ checkUpdates: b })} /></Row>
         </div>
       </div>
 

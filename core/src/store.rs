@@ -10,7 +10,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
+const KEEP_LOGS: i64 = 1000;
 const KEEP_RUNS: i64 = 300;
 
 pub struct Store {
@@ -268,6 +269,79 @@ impl Store {
     }
 }
 
+impl Store {
+    // -------------------------------------------------------------- session logs
+
+    pub fn log_upsert(&self, l: &SessionLog) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO session_logs(id, host_id, host_label, username, hostname, port, started_at, connected_at, ended_at, status, message, reconnects, bytes, transcript)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
+             ON CONFLICT(id) DO UPDATE SET connected_at = excluded.connected_at, ended_at = excluded.ended_at, status = excluded.status,
+               message = excluded.message, reconnects = excluded.reconnects, bytes = excluded.bytes, transcript = excluded.transcript",
+            params![l.id, l.host_id, l.host_label, l.username, l.hostname, l.port, l.started_at, l.connected_at, l.ended_at, l.status, l.message, l.reconnects, l.bytes as i64, l.transcript],
+        )?;
+        Ok(())
+    }
+
+    /// Newest first. Returns the ids that fell off the end of the bounded history (their transcripts go too).
+    pub fn logs_trim(&self) -> Result<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut st = conn.prepare("SELECT id FROM session_logs ORDER BY started_at DESC LIMIT -1 OFFSET ?1")?;
+        let old: Vec<String> = st.query_map(params![KEEP_LOGS], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        for id in &old {
+            conn.execute("DELETE FROM session_logs WHERE id = ?1", params![id])?;
+        }
+        Ok(old)
+    }
+
+    pub fn logs_list(&self, limit: u32) -> Result<Vec<SessionLog>> {
+        let conn = self.conn.lock().unwrap();
+        let mut st = conn.prepare(
+            "SELECT id, host_id, host_label, username, hostname, port, started_at, connected_at, ended_at, status, message, reconnects, bytes, transcript
+             FROM session_logs ORDER BY started_at DESC LIMIT ?1",
+        )?;
+        let it = st.query_map(params![limit], |r| {
+            Ok(SessionLog {
+                id: r.get(0)?,
+                host_id: r.get(1)?,
+                host_label: r.get(2)?,
+                username: r.get(3)?,
+                hostname: r.get(4)?,
+                port: r.get(5)?,
+                started_at: r.get(6)?,
+                connected_at: r.get(7)?,
+                ended_at: r.get(8)?,
+                status: r.get(9)?,
+                message: r.get(10)?,
+                reconnects: r.get(11)?,
+                bytes: r.get::<_, i64>(12)? as u64,
+                transcript: r.get(13)?,
+            })
+        })?;
+        Ok(it.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Delete one log (`Some`) or all of them; returns the deleted ids.
+    pub fn logs_delete(&self, id: Option<&str>) -> Result<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut st = conn.prepare("SELECT id FROM session_logs WHERE (?1 IS NULL OR id = ?1)")?;
+        let ids: Vec<String> = st.query_map(params![id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        conn.execute("DELETE FROM session_logs WHERE (?1 IS NULL OR id = ?1)", params![id])?;
+        Ok(ids)
+    }
+
+    /// Sessions left open by a crash or a forced quit.
+    pub fn logs_mark_interrupted(&self) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE session_logs SET status = 'ended', ended_at = MAX(connected_at, started_at) WHERE status IN ('connecting', 'connected', 'reconnecting')",
+            [],
+        )?;
+        Ok(())
+    }
+}
+
 fn run_from_row(r: &rusqlite::Row) -> rusqlite::Result<WorkflowRun> {
     let hosts: String = r.get(3)?;
     let params: String = r.get(4)?;
@@ -358,6 +432,20 @@ fn migrate(conn: &mut Connection) -> Result<()> {
             CREATE TABLE sync_objects (id TEXT PRIMARY KEY, kind TEXT NOT NULL, version INTEGER NOT NULL, updated_at INTEGER NOT NULL,
                 ciphertext BLOB NOT NULL);
             PRAGMA user_version = 1;
+            ",
+        )?;
+        tx.commit()?;
+    }
+    if version < 2 {
+        let tx = conn.transaction()?;
+        tx.execute_batch(
+            "
+            CREATE TABLE session_logs (id TEXT PRIMARY KEY, host_id TEXT NOT NULL, host_label TEXT NOT NULL, username TEXT NOT NULL,
+                hostname TEXT NOT NULL, port INTEGER NOT NULL, started_at INTEGER NOT NULL, connected_at INTEGER NOT NULL,
+                ended_at INTEGER NOT NULL, status TEXT NOT NULL, message TEXT NOT NULL, reconnects INTEGER NOT NULL,
+                bytes INTEGER NOT NULL, transcript INTEGER NOT NULL);
+            CREATE INDEX session_logs_started ON session_logs(started_at DESC);
+            PRAGMA user_version = 2;
             ",
         )?;
         tx.commit()?;

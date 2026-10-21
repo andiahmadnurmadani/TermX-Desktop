@@ -147,6 +147,30 @@ impl Default for Snippet {
     }
 }
 
+/// One interactive terminal session (Logs view): one row per tab/pane, across reconnects.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionLog {
+    pub id: String,
+    pub host_id: String,
+    pub host_label: String,
+    pub username: String,
+    pub hostname: String,
+    pub port: u16,
+    pub started_at: i64,
+    /// 0 until the first successful connect.
+    pub connected_at: i64,
+    /// 0 while the session is open.
+    pub ended_at: i64,
+    /// "connecting" | "connected" | "reconnecting" | "ended" | "failed"
+    pub status: String,
+    pub message: String,
+    pub reconnects: u32,
+    pub bytes: u64,
+    /// A terminal transcript was recorded for this session.
+    pub transcript: bool,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct KnownHost {
@@ -176,6 +200,19 @@ pub struct Settings {
     pub accent: String,
     /// Minutes of inactivity before the vault locks (master-password mode only). 0 = never.
     pub auto_lock_min: u32,
+    /// App (interface) font: "inter" | "system" | any installed family name.
+    pub ui_font: String,
+    /// Interface zoom in percent (the whole window, terminals included).
+    pub ui_scale: u32,
+    pub font_weight: u32,
+    pub font_weight_bold: u32,
+    pub letter_spacing: f32,
+    /// Record terminal transcripts in Logs (connection history is always kept).
+    pub session_logs: bool,
+    pub overview_live: bool,
+    /// Seconds between live Overview refreshes.
+    pub overview_interval: u32,
+    pub check_updates: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -192,6 +229,15 @@ impl Default for Settings {
             language: "en".into(),
             accent: "#3ddc97".into(),
             auto_lock_min: 15,
+            ui_font: "inter".into(),
+            ui_scale: 100,
+            font_weight: 400,
+            font_weight_bold: 700,
+            letter_spacing: 0.0,
+            session_logs: true,
+            overview_live: false,
+            overview_interval: 10,
+            check_updates: true,
         }
     }
 }

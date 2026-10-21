@@ -1,5 +1,6 @@
 pub mod backup;
 pub mod keys;
+pub mod logs;
 pub mod model;
 pub mod overview;
 pub mod secrets;
