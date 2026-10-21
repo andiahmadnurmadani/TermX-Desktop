@@ -34,7 +34,7 @@ export function PasswordInput({ value, onChange, placeholder, autoFocus }: { val
     <div className="input-wrap">
       <input className="input" type={show ? "text" : "password"} value={value} placeholder={placeholder} autoFocus={autoFocus}
         autoComplete="off" spellCheck={false} onChange={(e) => onChange(e.target.value)} />
-      <button type="button" className="icon-btn" tabIndex={-1} onClick={() => setShow(!show)}>{show ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+      <button type="button" className="icon-btn" tabIndex={-1} aria-label={show ? "Hide" : "Show"} title={show ? "Hide" : "Show"} onMouseDown={(e) => e.preventDefault()} onClick={() => setShow(!show)}>{show ? <EyeOff size={15} /> : <Eye size={15} />}</button>
     </div>
   );
 }

@@ -16,7 +16,7 @@ Tauri 2 (Rust) + React + xterm.js. MIT licensed. No account, no cloud, no teleme
 - **Logs**: every terminal session is listed with host, start time, duration, data transferred, reconnects and errors. Optionally, the terminal output is recorded so you can replay, search and export it (`.txt` / `.log`).
 - **Connection log**: while connecting, every step is shown live (DNS, TCP, host key, authentication method, PTY, shell), like Termius. Failed connects keep the log so you can see where it stopped; it is also saved with the session in Logs.
 - **sudo password fill**: when a terminal shows `[sudo] password for …`, one click types the password saved for that host (it never passes through the web UI). Optionally fill it automatically, once per prompt.
-- **Hosts with OS icons**: the remote OS is detected on first connect (Ubuntu, Debian, macOS, Windows, Fedora, Alpine, Raspberry Pi OS, …).
+- **Hosts with OS icons**: the remote OS is detected on first connect (Ubuntu, Debian, macOS, Windows, Fedora, Alpine, Raspberry Pi OS, …) including NAS, hypervisor and router platforms: Synology DSM, QNAP, TrueNAS, Unraid, openmediavault, Proxmox VE, VMware ESXi, pfSense, OPNsense, Ubiquiti.
 - **Personalisation**: app font, interface size (90–150 %), terminal font, weight, letter spacing, line height, cursor, themes and accent colour.
 - **Auto-update**: TermX checks GitHub Releases on start and installs signed updates in place with one click.
 - **SFTP**: a file browser with drag & drop, folder upload/download and an inline text editor.

@@ -143,6 +143,8 @@ impl client::Handler for ClientHandler {
 pub struct Conn {
     pub handle: client::Handle<ClientHandler>,
     pub host_id: String,
+    /// OS detection was started for this connection.
+    os_checked: std::sync::atomic::AtomicBool,
     /// Keeps the jump host connection alive as long as this one lives.
     _jump: Option<Arc<Conn>>,
 }
@@ -199,11 +201,13 @@ impl Manager {
 
     /// A live connection for the host, creating it (and its jump chain) if needed.
     pub fn connection_for(self: &Arc<Self>, host_id: String, depth: u32) -> BoxFut<Result<Arc<Conn>, SshError>> {
-        self.connection_for_p(host_id, depth, None)
+        self.connection_for_p(host_id, depth, None, false)
     }
 
-    /// Like [`connection_for`], reporting each setup step to `prog`.
-    pub fn connection_for_p(self: &Arc<Self>, host_id: String, depth: u32, prog: Prog) -> BoxFut<Result<Arc<Conn>, SshError>> {
+    /// Like [`connection_for`], reporting each setup step to `prog`. With `for_shell`, the caller
+    /// opens the first channel itself: sshd hands its login messages (MOTD, "updates available", …)
+    /// to the first session only, so nothing else may run on a fresh connection before the shell.
+    pub fn connection_for_p(self: &Arc<Self>, host_id: String, depth: u32, prog: Prog, for_shell: bool) -> BoxFut<Result<Arc<Conn>, SshError>> {
         let this = self.clone();
         Box::pin(async move {
             if depth > 3 {
@@ -225,7 +229,7 @@ impl Manager {
                 Some(j) => {
                     let jl = this.store.host(j).map(|h| h.label).unwrap_or_else(|| j.clone());
                     say(&prog, format!("Connecting through jump host \"{jl}\""));
-                    Some(this.connection_for_p(j.clone(), depth + 1, prog.clone()).await?)
+                    Some(this.connection_for_p(j.clone(), depth + 1, prog.clone(), false).await?)
                 }
                 None => None,
             };
@@ -237,10 +241,10 @@ impl Manager {
                     h.last_connected_at = now_ms();
                 }
             });
-            if host.os_id.is_none() {
-                let t = this.clone();
-                let c = conn.clone();
-                tokio::spawn(async move { t.detect_os(&c).await });
+            // every fresh connection re-checks, so upgrades (and NAS platforms on top of Debian) show up;
+            // shells start it themselves once their channel is open
+            if !for_shell {
+                this.spawn_detect_os(&conn);
             }
             Ok(conn)
         })
@@ -280,7 +284,7 @@ impl Manager {
         say(prog, "Handshake complete, session encrypted");
         self.authenticate(host, &mut handle, prog).await?;
         say(prog, "Authentication succeeded");
-        Ok(Conn { handle, host_id: host.id.clone(), _jump: jump })
+        Ok(Conn { handle, host_id: host.id.clone(), os_checked: Default::default(), _jump: jump })
     }
 
     async fn authenticate(self: &Arc<Self>, host: &Host, handle: &mut client::Handle<ClientHandler>, prog: &Prog) -> Result<(), SshError> {
@@ -392,12 +396,25 @@ impl Manager {
         exec_on(&conn, command, stdin, timeout).await
     }
 
+    fn spawn_detect_os(self: &Arc<Self>, conn: &Arc<Conn>) {
+        if conn.os_checked.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let t = self.clone();
+        let c = conn.clone();
+        tokio::spawn(async move { t.detect_os(&c).await });
+    }
+
     async fn detect_os(&self, conn: &Conn) {
-        let script = "uname -s 2>/dev/null; . /etc/os-release 2>/dev/null && echo \"$ID|$PRETTY_NAME\"; (sw_vers -productVersion 2>/dev/null)";
+        let script = OS_SCRIPT;
         let Ok(r) = exec_on(conn, "sh -s", Some(script), Duration::from_secs(8)).await else { return };
         let (id, name) = parse_os(&r.stdout);
         let hid = conn.host_id.clone();
         if let Some(id) = id {
+            let known = self.store.host(&hid).map(|h| (h.os_id, h.os_name));
+            if known == Some((Some(id.clone()), name.clone())) {
+                return;
+            }
             let _ = self.store.update(|v| {
                 if let Some(h) = v.hosts.iter_mut().find(|h| h.id == hid) {
                     h.os_id = Some(id);
@@ -574,7 +591,7 @@ impl Manager {
         tmux: Option<&str>,
         prog: &Prog,
     ) -> Result<(russh::Channel<client::Msg>, Arc<Conn>), SshError> {
-        let conn = self.connection_for_p(host.id.clone(), 0, prog.clone()).await?;
+        let conn = self.connection_for_p(host.id.clone(), 0, prog.clone(), true).await?;
         say(prog, "Opening session channel");
         let ch = conn.handle.channel_open_session().await.map_err(transient)?;
         say(prog, format!("Requesting PTY xterm-256color ({}x{})", cols.max(2), rows.max(2)));
@@ -594,6 +611,7 @@ impl Manager {
                 ch.request_shell(true).await.map_err(transient)?
             }
         }
+        self.spawn_detect_os(&conn);
         Ok((ch, conn))
     }
 }
@@ -768,9 +786,46 @@ async fn agent_auth(handle: &mut client::Handle<ClientHandler>, user: &str) -> R
 }
 
 /// Parse `uname -s` / os-release output into (icon id, pretty name).
+/// Prints `uname -s`, os-release `ID|PRETTY_NAME`, the macOS version and, for NAS / hypervisor /
+/// router platforms that sit on top of a generic OS, a `PLATFORM|id|name` line. BusyBox-safe.
+/// The script arrives on stdin (`sh -s`), so every command that might read stdin gets `</dev/null`
+/// or it would swallow the rest of the script.
+const OS_SCRIPT: &str = r#"uname -s </dev/null 2>/dev/null
+[ -r /etc/os-release ] && (. /etc/os-release && echo "$ID|$PRETTY_NAME")
+sw_vers -productVersion </dev/null 2>/dev/null
+kv() { sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" "$2" 2>/dev/null | head -1; }
+if [ -f /etc.defaults/VERSION ] && grep -q productversion /etc.defaults/VERSION 2>/dev/null; then
+  echo "PLATFORM|synology|Synology DSM $(kv productversion /etc.defaults/VERSION)"
+elif [ -f /etc/config/uLinux.conf ]; then
+  echo "PLATFORM|qnap|QNAP $(getcfg System Version </dev/null 2>/dev/null)"
+elif [ -f /etc/unraid-version ]; then
+  echo "PLATFORM|unraid|Unraid $(kv version /etc/unraid-version)"
+elif grep -qi truenas /etc/version 2>/dev/null || [ -d /usr/share/truenas ]; then
+  echo "PLATFORM|truenas|TrueNAS $(head -1 /etc/version 2>/dev/null | sed 's/^TrueNAS-//')"
+elif [ -d /etc/openmediavault ]; then
+  echo "PLATFORM|openmediavault|openmediavault $(dpkg-query -W -f='${Version}' openmediavault </dev/null 2>/dev/null)"
+elif command -v pveversion >/dev/null 2>&1; then
+  echo "PLATFORM|proxmox|Proxmox VE $(pveversion </dev/null 2>/dev/null | cut -d/ -f2)"
+elif command -v opnsense-version >/dev/null 2>&1; then
+  echo "PLATFORM|opnsense|$(opnsense-version </dev/null 2>/dev/null)"
+elif grep -qi pfsense /etc/platform 2>/dev/null; then
+  echo "PLATFORM|pfsense|pfSense $(cat /etc/version 2>/dev/null)"
+elif command -v ubnt-device-info >/dev/null 2>&1; then
+  echo "PLATFORM|ubiquiti|Ubiquiti $(ubnt-device-info model </dev/null 2>/dev/null)"
+fi
+"#;
+
 pub fn parse_os(out: &str) -> (Option<String>, Option<String>) {
     let lines: Vec<&str> = out.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
     let uname = lines.first().copied().unwrap_or("").to_lowercase();
+    if let Some(l) = lines.iter().find(|l| l.starts_with("PLATFORM|")) {
+        let mut it = l.splitn(3, '|').skip(1);
+        let id = it.next().unwrap_or("").to_string();
+        let name = it.next().unwrap_or("").trim().to_string();
+        if !id.is_empty() {
+            return (Some(id), Some(name).filter(|n| !n.is_empty()));
+        }
+    }
     if let Some(l) = lines.iter().find(|l| l.contains('|')) {
         let mut it = l.splitn(2, '|');
         let id = it.next().unwrap_or("").trim_matches('"').to_lowercase();
@@ -785,6 +840,7 @@ pub fn parse_os(out: &str) -> (Option<String>, Option<String>) {
             (Some("macos".into()), Some(format!("macOS {ver}").trim().to_string()))
         }
         "freebsd" => (Some("freebsd".into()), Some("FreeBSD".into())),
+        "vmkernel" => (Some("esxi".into()), Some("VMware ESXi".into())),
         "linux" => (Some("linux".into()), Some("Linux".into())),
         u if u.contains("mingw") || u.contains("cygwin") || u.contains("msys") => (Some("windows".into()), Some("Windows".into())),
         _ => (None, None),
@@ -799,6 +855,11 @@ mod tests {
         assert_eq!(parse_os("Linux\nubuntu|Ubuntu 24.04 LTS\n").0.as_deref(), Some("ubuntu"));
         assert_eq!(parse_os("Darwin\n26.5\n").1.as_deref(), Some("macOS 26.5"));
         assert_eq!(parse_os("").0, None);
+        let syno = parse_os("Linux\nPLATFORM|synology|Synology DSM 7.2.1\n");
+        assert_eq!((syno.0.as_deref(), syno.1.as_deref()), (Some("synology"), Some("Synology DSM 7.2.1")));
+        // the platform line wins over the os-release of the base system
+        assert_eq!(parse_os("Linux\ndebian|Debian GNU/Linux 12\nPLATFORM|proxmox|Proxmox VE 8.2.4\n").0.as_deref(), Some("proxmox"));
+        assert_eq!(parse_os("VMkernel\n").0.as_deref(), Some("esxi"));
     }
     #[test]
     fn tmux_names() {

@@ -1,11 +1,13 @@
 import { siAlmalinux, siAlpinelinux, siApple, siArchlinux, siCentos, siDebian, siDeepin, siElementary, siEndeavouros, siFedora, siFreebsd,
   siGentoo, siKalilinux, siLinux, siLinuxmint, siManjaro, siMxlinux, siNetbsd, siNixos, siOpenbsd, siOpensuse, siOpenwrt, siPopos,
-  siRaspberrypi, siRedhat, siRockylinux, siSlackware, siUbuntu, siVoidlinux, siZorin, type SimpleIcon } from "simple-icons";
+  siRaspberrypi, siRedhat, siRockylinux, siSlackware, siUbuntu, siVoidlinux, siZorin, siQnap, siTruenas, siUnraid,
+  siOpenmediavault, siProxmox, siSynology, siVmware, siOpnsense, siPfsense, siHomeassistant, siUbiquiti, type SimpleIcon } from "simple-icons";
 import { Server } from "lucide-react";
 import type { Host } from "./api";
 
-type Glyph = { path: string; hex: string; title: string };
-const g = (i: SimpleIcon): Glyph => ({ path: i.path, hex: i.hex, title: i.title });
+/** `wide`: the brand mark is a wordmark, drawn across the whole tile so it stays readable. */
+type Glyph = { path: string; hex: string; title: string; wide?: boolean };
+const g = (i: SimpleIcon, wide = false): Glyph => ({ path: i.path, hex: i.hex, title: i.title, wide });
 const WINDOWS: Glyph = { title: "Windows", hex: "0078D4", path: "M0 0h11.377v11.372H0zm12.623 0H24v11.372H12.623zM0 12.623h11.377V24H0zm12.623 0H24V24H12.623z" };
 
 /** os-release `ID` (or our own "macos"/"windows"/"linux") -> logo. */
@@ -17,9 +19,16 @@ const BY_ID: Record<string, Glyph> = {
   openbsd: g(siOpenbsd), netbsd: g(siNetbsd), kali: g(siKalilinux), manjaro: g(siManjaro), gentoo: g(siGentoo), nixos: g(siNixos),
   pop: g(siPopos), endeavouros: g(siEndeavouros), void: g(siVoidlinux), slackware: g(siSlackware), mx: g(siMxlinux), deepin: g(siDeepin),
   openwrt: g(siOpenwrt), elementary: g(siElementary), zorin: g(siZorin), linux: g(siLinux),
+  // NAS, hypervisors, routers (reported as PLATFORM by the detection script)
+  synology: { ...g(siSynology, true), hex: "000000" }, qnap: g(siQnap, true), truenas: g(siTruenas), unraid: g(siUnraid), openmediavault: g(siOpenmediavault),
+  proxmox: g(siProxmox), opnsense: g(siOpnsense), pfsense: g(siPfsense), haos: g(siHomeassistant), homeassistant: g(siHomeassistant),
+  esxi: g(siVmware, true), ubiquiti: g(siUbiquiti),
 };
 /** Pretty-name hints for distros that report a parent ID (e.g. Raspberry Pi OS says "debian"). */
 const BY_NAME: [RegExp, Glyph][] = [
+  [/synology|\bdsm\b/i, { ...g(siSynology, true), hex: "000000" }], [/qnap|\bqts\b|quts/i, g(siQnap, true)], [/truenas|freenas/i, g(siTruenas)], [/unraid/i, g(siUnraid)],
+  [/openmediavault/i, g(siOpenmediavault)], [/proxmox/i, g(siProxmox)], [/opnsense/i, g(siOpnsense)], [/pfsense/i, g(siPfsense)],
+  [/home assistant/i, g(siHomeassistant)], [/esxi|vmware/i, g(siVmware, true)], [/ubiquiti|unifi|edgeos/i, g(siUbiquiti)],
   [/raspberry|raspbian/i, g(siRaspberrypi)], [/ubuntu/i, g(siUbuntu)], [/debian/i, g(siDebian)], [/mac ?os|os x/i, g(siApple)],
   [/windows/i, WINDOWS], [/fedora/i, g(siFedora)], [/centos/i, g(siCentos)], [/red ?hat/i, g(siRedhat)], [/rocky/i, g(siRockylinux)],
   [/alma/i, g(siAlmalinux)], [/arch/i, g(siArchlinux)], [/alpine/i, g(siAlpinelinux)], [/suse/i, g(siOpensuse)], [/mint/i, g(siLinuxmint)],
@@ -45,7 +54,7 @@ const luma = (hex: string) => {
 /** Rounded tile with the host's OS logo; falls back to a server glyph in the host colour until the OS is known. */
 export function OsIcon({ host, size = 38 }: { host: Pick<Host, "osId" | "osName">; size?: number }) {
   const gl = osGlyph(host);
-  const px = Math.round(size * 0.5);
+  const px = Math.round(size * (gl?.wide ? 0.86 : 0.5));
   if (!gl) return <div className="avatar" style={{ width: size, height: size }}><Server size={px} /></div>;
   const l = luma(gl.hex);
   // near-black brands (Apple, AlmaLinux, ...) follow the theme instead of disappearing on dark backgrounds

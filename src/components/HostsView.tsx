@@ -77,16 +77,19 @@ export function HostsView() {
   const hosts = vault?.hosts ?? [];
   const groups = vault?.groups ?? [];
 
+  const hasUngrouped = useMemo(() => hosts.some((h) => !h.groupId || !groups.some((g) => g.id === h.groupId)), [hosts, groups]);
+  // a filter that no longer matches anything (last host moved/deleted) falls back to all
+  const activeGroup = groupId === "none" && !hasUngrouped ? "all" : groupId;
+
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     return hosts.filter((h) => {
-      if (groupId !== "all" && (h.groupId ?? "") !== (groupId === "none" ? "" : groupId)) return false;
+      if (activeGroup !== "all" && (h.groupId ?? "") !== (activeGroup === "none" ? "" : activeGroup)) return false;
       if (!s) return true;
       return [h.label, h.hostname, h.username, h.osName ?? "", h.environment, ...h.tags].some((x) => x.toLowerCase().includes(s));
     });
-  }, [hosts, q, groupId]);
+  }, [hosts, q, activeGroup]);
 
-  const recent = useMemo(() => (q || groupId !== "all" || hosts.length < 7 ? [] : [...hosts].filter((h) => h.lastConnectedAt).sort((a, b) => b.lastConnectedAt - a.lastConnectedAt).slice(0, 3)), [hosts, q, groupId]);
 
   const sections = useMemo(() => {
     const byGroup = new Map<string, Host[]>();
@@ -128,14 +131,14 @@ export function HostsView() {
           </div>
           {groups.length > 0 && (
             <div className="chips">
-              <button className={"chip" + (groupId === "all" ? " on" : "")} onClick={() => setGroupId("all")}>{t("hosts.all")}</button>
+              <button className={"chip" + (activeGroup === "all" ? " on" : "")} onClick={() => setGroupId("all")}>{t("hosts.all")}</button>
               {groups.map((g) => (
                 <button key={g.id} className={"chip" + (groupId === g.id ? " on" : "")} onClick={() => setGroupId(g.id)}>
                   {g.name}
                   {groupId === g.id && <span title={t("hosts.deleteGroup")} onClick={(e) => { e.stopPropagation(); delGroup(g.id); }}><X size={12} /></span>}
                 </button>
               ))}
-              <button className={"chip" + (groupId === "none" ? " on" : "")} onClick={() => setGroupId("none")}>{t("hosts.ungrouped")}</button>
+              {hasUngrouped && <button className={"chip" + (activeGroup === "none" ? " on" : "")} onClick={() => setGroupId("none")}>{t("hosts.ungrouped")}</button>}
             </div>
           )}
         </div>
@@ -148,15 +151,9 @@ export function HostsView() {
         <EmptyState icon={<Search size={24} />} title={t("hosts.noresults")} body="" />
       ) : (
         <div className="hosts-body">
-          {recent.length > 0 && (
-            <>
-              <div className="group-title">{t("hosts.recent")}<span className="line" /></div>
-              <div className="grid">{recent.map((h, i) => <HostCard key={"r" + h.id} host={h} i={i} />)}</div>
-            </>
-          )}
           {sections.map((s) => (
             <div key={s.id || "none"}>
-              {(s.name || recent.length > 0) && <div className="group-title">{s.name || t("hosts.all")}<span className="line" /></div>}
+              {s.name && <div className="group-title">{s.name}<span className="line" /></div>}
               <div className="grid">{s.hosts.map((h, i) => <HostCard key={h.id} host={h} i={i} />)}</div>
             </div>
           ))}
