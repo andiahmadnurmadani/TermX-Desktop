@@ -20,7 +20,20 @@ export interface Settings {
   uiFont: string; uiScale: number; fontWeight: number; fontWeightBold: number; letterSpacing: number;
   sessionLogs: boolean; overviewLive: boolean; overviewInterval: number; checkUpdates: boolean;
   sudoAutofill: boolean;
+  ai: AiSettings;
 }
+export interface AiSettings {
+  provider: string; models: Record<string, string>; baseUrls: Record<string, string>;
+  approval: "ask" | "safe" | "auto"; shareScreen: boolean;
+}
+export type AiPart =
+  | { type: "text"; text: string }
+  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
+  | { type: "tool_result"; toolUseId: string; content: string; isError: boolean };
+export interface AiMsg { role: "user" | "assistant"; content: AiPart[] }
+export interface AiTool { name: string; description: string; parameters: Record<string, unknown> }
+export interface AiChatReq { api: "anthropic" | "openai"; baseUrl: string; model: string; system: string; messages: AiMsg[]; tools: AiTool[]; maxTokens?: number }
+export interface AiChatResp { content: AiPart[]; stopReason: string; inputTokens: number; outputTokens: number }
 export interface SessionLog {
   id: string; hostId: string; hostLabel: string; username: string; hostname: string; port: number;
   startedAt: number; connectedAt: number; endedAt: number; status: SessionState; message: string;
@@ -77,6 +90,7 @@ export const api = {
   keyInstall: (keyId: string, hostId: string) => invoke<void>("key_install", { keyId, hostId }),
   sshOpen: (sessionId: string, hostId: string, cols: number, rows: number, data: Channel<ArrayBuffer>) =>
     invoke<void>("ssh_open", { sessionId, hostId, cols, rows, data }),
+  localOpen: (sessionId: string, cols: number, rows: number, data: Channel<ArrayBuffer>) => invoke<string>("local_open", { sessionId, cols, rows, data }),
   sshWrite: (sessionId: string, data: string) => invoke<void>("ssh_write", { sessionId, data }),
   sshFillPassword: (sessionId: string) => invoke<void>("ssh_fill_password", { sessionId }),
   sshResize: (sessionId: string, cols: number, rows: number) => invoke<void>("ssh_resize", { sessionId, cols, rows }),
@@ -118,6 +132,11 @@ export const api = {
   workflowRunGet: (id: string) => invoke<WorkflowRun | null>("workflow_run_get", { id }),
   workflowRunsClear: (workflowId: string | null) => invoke<void>("workflow_runs_clear", { workflowId }),
   hostOverview: (hostId: string) => invoke<Overview>("host_overview", { hostId }),
+  aiKeySet: (provider: string, key: string | null) => invoke<void>("ai_key_set", { provider, key }),
+  aiKeyList: (providers: string[]) => invoke<string[]>("ai_key_list", { providers }),
+  aiChat: (reqId: string, provider: string, req: AiChatReq) => invoke<AiChatResp>("ai_chat", { reqId, provider, req }),
+  aiCancel: (reqId: string) => invoke<void>("ai_cancel", { reqId }),
+  aiModels: (provider: string, api: string, baseUrl: string) => invoke<string[]>("ai_models", { provider, api, baseUrl }),
   logsList: () => invoke<SessionLog[]>("logs_list"),
   logsDelete: (id: string | null) => invoke<void>("logs_delete", { id }),
   logTranscript: (id: string) => invoke<ArrayBuffer>("log_transcript", { id }),

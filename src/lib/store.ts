@@ -1,6 +1,9 @@
 import { create } from "zustand";
 import { api, errText, uid, type AppInfo, type Layout, type SessionLog, type SessionState, type Settings, type Vault, type Workspace } from "./api";
 
+/** Host id used by local (this computer) terminal tabs. */
+export const LOCAL_HOST = "__local";
+
 export type View = "hosts" | "workspaces" | "workflows" | "overview" | "logs" | "keys" | "snippets" | "settings";
 
 /** A terminal pane inside a grid tab. `sid` is the SSH session id. */
@@ -45,6 +48,7 @@ interface S {
   setView: (v: View) => void;
   setActive: (id: string | null) => void;
   openTerm: (hostId: string) => void;
+  openLocal: () => string;
   openSftp: (hostId: string) => void;
   openGrid: (opts?: Partial<Workspace>) => void;
   openHostInGrid: (hostId: string) => void;
@@ -99,6 +103,13 @@ export const useStore = create<S>((set, get) => ({
     set((s) => ({ tabs: [...s.tabs, tab], active: tab.id, sessions: { ...s.sessions, [tab.id]: { state: "connecting" } } }));
     // refresh "last connected" shortly after the connection is made
     setTimeout(() => get().load().catch(() => {}), 2500);
+  },
+  openLocal: () => {
+    const n = get().tabs.filter((t) => t.hostId === LOCAL_HOST).length;
+    const base = get().vault?.settings.language === "id" ? "Lokal" : "Local";
+    const tab: Tab = { id: uid(), kind: "term", hostId: LOCAL_HOST, seq: n + 1, title: n ? `${base} (${n + 1})` : base };
+    set((s) => ({ tabs: [...s.tabs, tab], active: tab.id, sessions: { ...s.sessions, [tab.id]: { state: "connecting" } } }));
+    return tab.id;
   },
   openSftp: (hostId) => {
     const host = get().vault?.hosts.find((h) => h.id === hostId);
@@ -247,4 +258,17 @@ export function tabState(tab: Tab, sessions: Record<string, SessionInfo>): Sessi
 }
 
 /** Handles registered by mounted terminals so other UI (snippets, palette) can talk to them. */
-export const termHandles = new Map<string, { write: (text: string) => void; focus: () => void }>();
+export interface TermHandle {
+  hostId: string;
+  write: (text: string) => void | Promise<void>;
+  focus: () => void;
+  /** Absolute buffer line of the cursor (for reading what came after it). */
+  cursorLine: () => number;
+  /** Plain text from absolute line `from` to the end of the buffer (wrapped lines joined). */
+  readFrom: (from: number) => string;
+  /** The last `n` lines of the buffer as plain text. */
+  tail: (n: number) => string;
+  /** Called on every chunk of output; returns an unsubscribe function. */
+  onOutput: (cb: () => void) => () => void;
+}
+export const termHandles = new Map<string, TermHandle>();

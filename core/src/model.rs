@@ -224,6 +224,34 @@ pub struct Settings {
     pub check_updates: bool,
     /// Answer `[sudo] password for …` prompts with the host's password without asking.
     pub sudo_autofill: bool,
+    pub ai: AiSettings,
+}
+
+/// AI assistant preferences. API keys are not stored here (they are encrypted in the store's meta table).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AiSettings {
+    /// Selected provider preset id ("anthropic", "openai", "gemini", "openrouter", "ollama", "custom", …).
+    pub provider: String,
+    /// Model per provider id.
+    pub models: std::collections::BTreeMap<String, String>,
+    /// Base URL overrides per provider id (required for "custom").
+    pub base_urls: std::collections::BTreeMap<String, String>,
+    /// "ask" (approve every command) | "safe" (auto-run read-only commands) | "auto" (run everything; production still asks)
+    pub approval: String,
+    /// Send the visible terminal screen with each request.
+    pub share_screen: bool,
+}
+impl Default for AiSettings {
+    fn default() -> Self {
+        AiSettings {
+            provider: "anthropic".into(),
+            models: Default::default(),
+            base_urls: Default::default(),
+            approval: "ask".into(),
+            share_screen: true,
+        }
+    }
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -250,6 +278,7 @@ impl Default for Settings {
             overview_interval: 10,
             check_updates: true,
             sudo_autofill: false,
+            ai: AiSettings::default(),
         }
     }
 }

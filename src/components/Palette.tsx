@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, FolderOpen, KeyRound, LayoutGrid, ListChecks, Play, Plus, ScrollText, Settings, Terminal, Workflow, Zap } from "lucide-react";
+import { Sparkles, SquareTerminal } from "lucide-react";
+import { useAi } from "../lib/ai/agent";
 import { OsIcon } from "../lib/os";
 import { useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
@@ -24,6 +26,8 @@ export function Palette() {
     }
     for (const w of vault?.workspaces ?? []) out.push({ id: "w" + w.id, group: t("nav.workspaces"), label: w.name, icon: <Play size={15} />, run: () => openGrid(w) });
     out.push(
+      { id: "a8", group: t("palette.actions"), label: t("term.local"), sub: t("term.localHint"), icon: <SquareTerminal size={15} />, run: () => useStore.getState().openLocal() },
+      { id: "a9", group: t("palette.actions"), label: t("ai.title"), icon: <Sparkles size={15} />, run: () => useAi.getState().setOpen(true) },
       { id: "a0", group: t("palette.actions"), label: t("ws.newEmpty"), icon: <LayoutGrid size={15} />, run: () => openGrid() },
       { id: "a5", group: t("palette.actions"), label: t("nav.workflows"), icon: <Workflow size={15} />, run: () => setView("workflows") },
       { id: "a6", group: t("palette.actions"), label: t("nav.overview"), icon: <Activity size={15} />, run: () => setView("overview") },

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Activity, ArrowUpCircle, FolderOpen, KeyRound, LayoutGrid, ListChecks, Lock, Plus, ScrollText, Search, Server, Settings, Workflow, X, Zap } from "lucide-react";
+import { Activity, ArrowUpCircle, FolderOpen, KeyRound, LayoutGrid, ListChecks, Lock, Plus, ScrollText, Search, Server, Settings, SquareTerminal, Workflow, X, Zap } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { tabState, useStore, type View } from "./lib/store";
 import { api } from "./lib/api";
@@ -25,6 +25,8 @@ import { UpdateCard, useUpdateCheck } from "./components/UpdateCard";
 import { LockScreen, useAutoLock } from "./components/LockScreen";
 import { Palette } from "./components/Palette";
 import { BrandMark, DialogHost, Toasts } from "./components/ui";
+import { AiButton, AiPanel } from "./components/AiPanel";
+import { useAi } from "./lib/ai/agent";
 
 const NAV: { v: View; icon: typeof Server; label: Key }[] = [
   { v: "hosts", icon: Server, label: "nav.hosts" },
@@ -55,6 +57,8 @@ export default function App() {
     const h = (e: KeyboardEvent) => {
       const st = useStore.getState();
       if (isMod(e, "k")) { e.preventDefault(); st.setPalette(!st.palette); return; }
+      if (isMod(e, "l")) { e.preventDefault(); st.openLocal(); return; }
+      if (isMod(e, "j")) { e.preventDefault(); const ai = useAi.getState(); ai.setOpen(!ai.open); return; }
       if (isMod(e, "t")) { e.preventDefault(); st.setView("hosts"); return; }
       if (isMod(e, "w")) { if (st.active) { e.preventDefault(); st.closeTab(st.active); } return; }
       if (isMod(e, "n") && !isMac) { e.preventDefault(); st.openHostDialog(null); return; }
@@ -116,8 +120,10 @@ export default function App() {
               </div>
             ))}
             <button className="icon-btn" style={{ alignSelf: "center", marginLeft: 4 }} title={t("hosts.new")} onClick={() => openHostDialog(null)}><Plus size={16} /></button>
+            <button className="icon-btn" style={{ alignSelf: "center" }} title={`${t("term.local")} (${modLabel}L)`} onClick={() => useStore.getState().openLocal()}><SquareTerminal size={15} /></button>
           </div>
           <div className="grow" data-tauri-drag-region />
+          <AiButton />
           <button className="pal" style={{ marginBottom: 9 }} onClick={() => setPalette(true)}><Search size={13} />{t("palette.placeholder").replace("…", "")}<span className="kbd">{modLabel}K</span></button>
         </div>
 
@@ -141,6 +147,7 @@ export default function App() {
         </div>
       </div>
 
+      <AiPanel />
       {hostDialog && <HostDrawer key={hostDialog.hostId ?? "new"} />}
       {palette && <Palette />}
       <Prompts />

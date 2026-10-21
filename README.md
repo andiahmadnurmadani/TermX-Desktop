@@ -19,7 +19,14 @@ Tauri 2 (Rust) + React + xterm.js. MIT licensed. No account, no cloud, no teleme
 - **Hosts with OS icons**: the remote OS is detected on first connect (Ubuntu, Debian, macOS, Windows, Fedora, Alpine, Raspberry Pi OS, …) including NAS, hypervisor and router platforms: Synology DSM, QNAP, TrueNAS, Unraid, openmediavault, Proxmox VE, VMware ESXi, pfSense, OPNsense, Ubiquiti.
 - **Personalisation**: app font, interface size (90–150 %), terminal font, weight, letter spacing, line height, cursor, themes and accent colour.
 - **Auto-update**: TermX checks GitHub Releases on start and installs signed updates in place with one click.
+- **AI assistant** (`Ctrl/⌘+J`): describe what you want and the assistant types and runs the commands in your terminal while you watch.
+  - It knows your hosts, groups, open sessions, the visible screen, snippets and workflows, so you can say "check disk on the NAS".
+  - Providers: Anthropic, OpenAI, Google Gemini, OpenRouter, Groq, DeepSeek, Mistral, xAI, any OpenAI-compatible endpoint, and local models via Ollama or LM Studio.
+  - Approval modes: ask for every command, auto-run read-only commands, or auto-run everything. On production hosts, commands that change something always ask first.
+  - API keys are encrypted in the local vault and never leave the app except to the provider you chose.
+- **Local terminal** (`Ctrl/⌘+L`): your own shell (zsh / bash / PowerShell) in a tab, next to your SSH sessions.
 - **SFTP**: a file browser with drag & drop, folder upload/download and an inline text editor.
+  - Works on NAS boxes too. If the SFTP subsystem is off, TermX falls back to `sftp-server` when available; otherwise it says how to turn SFTP on (Synology: Control Panel → File Services → FTP → SFTP; QNAP: Network & File Services → Telnet/SSH → Enable SFTP) instead of hanging until a timeout.
 - **Credential vault**: passwords and private keys are encrypted with AES-256-GCM.
   - By default the data key lives in the OS keychain (Keychain / Credential Manager / Secret Service).
   - Optionally, set a **master password** (Argon2id) with auto-lock.

@@ -35,6 +35,7 @@ struct AppState {
     engine: Arc<Engine>,
     prompts: Arc<Prompts>,
     data_dir: PathBuf,
+    local: Arc<termx_core::local::LocalPty>,
 }
 
 /// Pending dialogs (host key / password): the backend waits on a oneshot until the UI answers.
@@ -299,6 +300,73 @@ fn workflow_runs_clear(state: State<'_, AppState>, workflow_id: Option<String>) 
 
 // ------------------------------------------------------------------ overview
 
+// ------------------------------------------------------------------ AI assistant
+
+/// In-flight model requests, so the UI can stop one.
+fn ai_runs() -> &'static Mutex<HashMap<String, termx_core::ai::CancellationToken>> {
+    static RUNS: std::sync::OnceLock<Mutex<HashMap<String, termx_core::ai::CancellationToken>>> = std::sync::OnceLock::new();
+    RUNS.get_or_init(Default::default)
+}
+
+const AI_KEY_PREFIX: &str = "ai_key:";
+
+fn ai_key(state: &AppState, provider: &str) -> CmdResult<Option<String>> {
+    match state.store.meta_get(&format!("{AI_KEY_PREFIX}{provider}")).map_err(err)? {
+        Some(enc) if !enc.is_empty() => Ok(Some(state.sb.decrypt(&enc).map_err(err)?)),
+        _ => Ok(None),
+    }
+}
+
+/// Store (encrypted) or remove (`None` / empty) a provider's API key.
+#[tauri::command]
+fn ai_key_set(state: State<'_, AppState>, provider: String, key: Option<String>) -> CmdResult<()> {
+    let name = format!("{AI_KEY_PREFIX}{provider}");
+    match key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty()) {
+        Some(k) => state.store.meta_set(&name, &state.sb.encrypt(&k).map_err(err)?).map_err(err),
+        None => state.store.meta_delete(&name).map_err(err),
+    }
+}
+
+/// Providers that have a saved key (keys themselves never go to the UI).
+#[tauri::command]
+fn ai_key_list(state: State<'_, AppState>, providers: Vec<String>) -> CmdResult<Vec<String>> {
+    let mut out = vec![];
+    for p in providers {
+        if state.store.meta_get(&format!("{AI_KEY_PREFIX}{p}")).map_err(err)?.is_some_and(|v| !v.is_empty()) {
+            out.push(p);
+        }
+    }
+    Ok(out)
+}
+
+/// One model turn. Streamed text arrives as `ai:delta` events `{ reqId, text }`.
+#[tauri::command]
+async fn ai_chat(app: AppHandle, state: State<'_, AppState>, req_id: String, provider: String, req: termx_core::ai::ChatReq) -> CmdResult<termx_core::ai::ChatResp> {
+    let key = ai_key(&state, &provider)?;
+    let cancel = termx_core::ai::CancellationToken::new();
+    ai_runs().lock().unwrap().insert(req_id.clone(), cancel.clone());
+    let id = req_id.clone();
+    let on_text = move |t: &str| {
+        let _ = app.emit("ai:delta", serde_json::json!({ "reqId": id, "text": t }));
+    };
+    let r = termx_core::ai::chat(&req, key.as_deref(), &on_text, &cancel).await;
+    ai_runs().lock().unwrap().remove(&req_id);
+    r.map_err(err)
+}
+
+#[tauri::command]
+fn ai_cancel(req_id: String) {
+    if let Some(c) = ai_runs().lock().unwrap().remove(&req_id) {
+        c.cancel();
+    }
+}
+
+#[tauri::command]
+async fn ai_models(state: State<'_, AppState>, provider: String, api: String, base_url: String) -> CmdResult<Vec<String>> {
+    let key = ai_key(&state, &provider)?;
+    termx_core::ai::list_models(&api, &base_url, key.as_deref()).await.map_err(err)
+}
+
 #[tauri::command]
 async fn host_overview(state: State<'_, AppState>, host_id: String) -> CmdResult<Overview> {
     let r = state.mgr.exec(&host_id, "sh -s", Some(overview::SCRIPT), Duration::from_secs(20)).await.map_err(err)?;
@@ -523,8 +591,36 @@ async fn ssh_open(
     state.mgr.open_shell(session_id, &host_id, cols, rows, tmux, sink).map_err(err)
 }
 
+/// A shell on this computer. Write/resize/close go through the ssh_* commands, which route by id.
+#[tauri::command]
+fn local_open(app: AppHandle, state: State<'_, AppState>, session_id: String, cols: u32, rows: u32, data: Channel<InvokeResponseBody>) -> CmdResult<String> {
+    let id = session_id.clone();
+    let app2 = app.clone();
+    let shell = state
+        .local
+        .open(
+            &session_id,
+            cols.min(u16::MAX as u32) as u16,
+            rows.min(u16::MAX as u32) as u16,
+            move |bytes| {
+                let _ = data.send(InvokeResponseBody::Raw(bytes));
+            },
+            move |code| {
+                let msg = code.filter(|c| *c != 0).map(|c| format!("exit code {c}"));
+                let _ = app2.emit("session:state", serde_json::json!({ "id": id, "state": "ended", "message": msg }));
+            },
+        )
+        .map_err(err)?;
+    let _ = app.emit("session:state", serde_json::json!({ "id": session_id, "state": "connected", "message": null }));
+    Ok(shell)
+}
+
 #[tauri::command]
 fn ssh_write(state: State<'_, AppState>, session_id: String, data: String) {
+    if state.local.has(&session_id) {
+        let _ = state.local.write(&session_id, data.as_bytes());
+        return;
+    }
     state.mgr.control(&session_id, Ctl::Input(data.into_bytes()));
 }
 
@@ -536,6 +632,9 @@ fn ssh_fill_password(state: State<'_, AppState>, session_id: String) -> CmdResul
 
 #[tauri::command]
 fn ssh_resize(state: State<'_, AppState>, session_id: String, cols: u32, rows: u32) {
+    if state.local.has(&session_id) {
+        return state.local.resize(&session_id, cols.min(u16::MAX as u32) as u16, rows.min(u16::MAX as u32) as u16);
+    }
     state.mgr.control(&session_id, Ctl::Resize(cols, rows));
 }
 
@@ -546,6 +645,9 @@ fn ssh_reconnect(state: State<'_, AppState>, session_id: String) {
 
 #[tauri::command]
 fn ssh_close(state: State<'_, AppState>, session_id: String) {
+    if state.local.has(&session_id) {
+        return state.local.close(&session_id);
+    }
     state.mgr.control(&session_id, Ctl::Close);
 }
 
@@ -804,7 +906,7 @@ pub fn run() {
             let mgr = Manager::new(store.clone(), sb.clone(), ui);
             let sftp = Sftp::new(mgr.clone());
             let engine = Engine::new(mgr.clone(), store.clone());
-            app.manage(AppState { store, sb, mgr, sftp, engine, prompts, data_dir });
+            app.manage(AppState { store, sb, mgr, sftp, engine, prompts, data_dir, local: termx_core::local::LocalPty::new() });
             if let Some(w) = app.get_webview_window("main") {
                 fit_to_work_area(&w);
             }
@@ -828,6 +930,7 @@ pub fn run() {
             ssh_open,
             ssh_write,
             ssh_fill_password,
+            local_open,
             ssh_resize,
             ssh_reconnect,
             ssh_close,
@@ -862,6 +965,11 @@ pub fn run() {
             workflow_run_get,
             workflow_runs_clear,
             host_overview,
+            ai_key_set,
+            ai_key_list,
+            ai_chat,
+            ai_cancel,
+            ai_models,
             logs_list,
             logs_delete,
             log_transcript,

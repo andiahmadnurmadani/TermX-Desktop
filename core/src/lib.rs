@@ -1,5 +1,7 @@
+pub mod ai;
 pub mod backup;
 pub mod keys;
+pub mod local;
 pub mod logs;
 pub mod model;
 pub mod overview;

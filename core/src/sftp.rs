@@ -41,6 +41,75 @@ pub struct Sftp {
 
 const CHUNK: usize = 256 * 1024;
 
+/// Used when the server refuses the "sftp" subsystem: start an sftp-server binary directly.
+/// NAS systems often ship one even with the SFTP service switched off.
+const SFTP_SERVER_FALLBACK: &str = "for p in /usr/libexec/sftp-server /usr/lib/openssh/sftp-server /usr/lib/ssh/sftp-server \
+/usr/libexec/openssh/sftp-server /usr/lib/sftp-server /usr/bin/sftp-server /usr/sbin/sftp-server /bin/sftp-server; \
+do [ -x \"$p\" ] && exec \"$p\"; done; exit 127";
+
+const NO_SFTP: &str = "SFTP is not available on this server. On a NAS it is usually switched off: \
+Synology: Control Panel > File Services > FTP > Enable SFTP service. \
+QNAP: Control Panel > Network & File Services > Telnet/SSH > Enable SFTP.";
+
+/// Wait for the answer to a `want_reply` channel request. `None`: no answer in time.
+async fn channel_reply(ch: &mut russh::Channel<russh::client::Msg>, secs: u64) -> Option<bool> {
+    tokio::time::timeout(std::time::Duration::from_secs(secs), async {
+        loop {
+            match ch.wait().await {
+                Some(russh::ChannelMsg::Success) => return true,
+                Some(russh::ChannelMsg::Failure) | Some(russh::ChannelMsg::Close) | Some(russh::ChannelMsg::Eof) | None => return false,
+                Some(russh::ChannelMsg::ExitStatus { .. }) => return false,
+                Some(_) => continue,
+            }
+        }
+    })
+    .await
+    .ok()
+}
+
+async fn start_session(ch: russh::Channel<russh::client::Msg>) -> Result<SftpSession> {
+    let cfg = russh_sftp::client::Config { request_timeout_secs: 30, ..Default::default() };
+    match tokio::time::timeout(std::time::Duration::from_secs(15), SftpSession::new_with_config(ch.into_stream(), cfg)).await {
+        Ok(Ok(s)) => Ok(s),
+        Ok(Err(e)) => Err(anyhow!("{e}")),
+        Err(_) => Err(anyhow!("no answer from the SFTP server")),
+    }
+}
+
+/// Open an SFTP session: the "sftp" subsystem first, then an sftp-server binary as a fallback.
+async fn open_sftp(handle: &russh::client::Handle<crate::ssh::ClientHandler>) -> Result<SftpSession> {
+    let mut ch = handle.channel_open_session().await?;
+    // tests: TERMX_SFTP_FORCE_EXEC=1 exercises the fallback path
+    let force_exec = std::env::var("TERMX_SFTP_FORCE_EXEC").is_ok_and(|v| !v.is_empty());
+    if !force_exec {
+        ch.request_subsystem(true, "sftp").await?;
+    }
+    let subsystem_err = match if force_exec { Some(false) } else { channel_reply(&mut ch, 10).await } {
+        // refused outright: don't wait for an SFTP handshake that will never come
+        Some(false) => anyhow!("the server refused the sftp subsystem"),
+        _ => match start_session(ch).await {
+            Ok(s) => return Ok(s),
+            Err(e) => e,
+        },
+    };
+    let mut ch = handle.channel_open_session().await?;
+    ch.exec(true, SFTP_SERVER_FALLBACK).await?;
+    if channel_reply(&mut ch, 10).await == Some(false) {
+        return Err(anyhow!("{NO_SFTP}"));
+    }
+    match start_session(ch).await {
+        Ok(s) => Ok(s),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("message") || msg.contains("length") || msg.contains("packet") {
+                Err(anyhow!("SFTP: {subsystem_err}. The server's shell prints text on login (check ~/.bashrc), which breaks SFTP."))
+            } else {
+                Err(anyhow!("{NO_SFTP} ({subsystem_err})"))
+            }
+        }
+    }
+}
+
 impl Sftp {
     pub fn new(mgr: Arc<Manager>) -> Arc<Self> {
         Arc::new(Sftp { mgr, open: Default::default(), cancels: Default::default() })
@@ -52,9 +121,7 @@ impl Sftp {
             return Ok(s.clone());
         }
         let conn = self.mgr.connection_for(host_id.to_string(), 0).await.map_err(|e| anyhow!("{e}"))?;
-        let ch = conn.handle.channel_open_session().await?;
-        ch.request_subsystem(true, "sftp").await?;
-        let s = Arc::new(SftpSession::new(ch.into_stream()).await.map_err(|e| anyhow!("SFTP: {e}"))?);
+        let s = Arc::new(open_sftp(&conn.handle).await?);
         g.insert(host_id.to_string(), s.clone());
         Ok(s)
     }
@@ -84,8 +151,15 @@ impl Sftp {
         }
     }
 
+    /// The login directory; "/" when the account has none (e.g. a NAS user without a home folder).
     pub async fn home(&self, host_id: &str) -> Result<String> {
-        self.with(host_id, |s| async move { Ok(s.canonicalize(".").await.map_err(|e| anyhow!("{e}"))?) }).await
+        self.with(host_id, |s| async move {
+            match s.canonicalize(".").await {
+                Ok(p) if !p.is_empty() => Ok(p),
+                _ => Ok("/".to_string()),
+            }
+        })
+        .await
     }
 
     pub async fn list(&self, host_id: &str, path: &str) -> Result<Vec<FileEntry>> {

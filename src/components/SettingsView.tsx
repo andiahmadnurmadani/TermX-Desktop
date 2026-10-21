@@ -8,6 +8,7 @@ import { THEME_IDS, THEME_NAMES, terminalTheme } from "../lib/themes";
 import { uiFontStack, useResolvedDark } from "../lib/theme";
 import { useUpdater } from "../lib/updater";
 import { Field, Modal, PasswordInput, Seg, Switch } from "./ui";
+import { AiSetup } from "./AiPanel";
 
 const ACCENTS = ["#3ddc97", "#5aa9ff", "#b58cff", "#ff8ab3", "#ffb35c", "#f2d45c", "#5fd7e0", "#ff6b6b"];
 const FONTS = ["JetBrains Mono", "Menlo", "SF Mono", "Monaco", "Consolas", "Cascadia Code", "Fira Code", "Source Code Pro", "IBM Plex Mono", "Hack", "DejaVu Sans Mono", "Ubuntu Mono"];
@@ -241,6 +242,18 @@ export function SettingsView() {
           <Row title={t("set.cursorBlink")}><Switch on={s.cursorBlink} onChange={(b) => saveSettings({ cursorBlink: b })} /></Row>
           <Row title={t("set.copyOnSelect")}><Switch on={s.copyOnSelect} onChange={(b) => saveSettings({ copyOnSelect: b })} /></Row>
           <Row title={t("set.sudoAutofill")} hint={t("set.sudoAutofillHint")}><Switch on={!!s.sudoAutofill} onChange={(b) => saveSettings({ sudoAutofill: b })} /></Row>
+        </div>
+      </div>
+
+      <div className="section">
+        <h2>{t("ai.title")}</h2>
+        <div className="panel list">
+          <div className="setting ai-setting"><div className="meta"><div>{t("ai.provider")}</div><small>{t("ai.setupBody")}</small></div><div className="ctl"><AiSetup /></div></div>
+          <Row title={t("ai.approvalTitle")} hint={t("ai.approvalHint")}>
+            <Seg value={s.ai.approval} onChange={(v) => saveSettings({ ai: { ...s.ai, approval: v } })}
+              options={[{ v: "ask", label: t("ai.approval.ask") }, { v: "safe", label: t("ai.approval.safe") }, { v: "auto", label: t("ai.approval.auto") }]} />
+          </Row>
+          <Row title={t("ai.shareScreen")} hint={t("ai.shareScreenHint")}><Switch on={s.ai.shareScreen} onChange={(b) => saveSettings({ ai: { ...s.ai, shareScreen: b } })} /></Row>
         </div>
       </div>
 

@@ -21,7 +21,7 @@
     document.querySelectorAll(".stage .shot, .cap").forEach((el) => el.classList.toggle("on", el.dataset.scene === scene));
   };
   tabs.forEach((t) => t.addEventListener("click", () => show(t.dataset.scene)));
-  show("terminal");
+  show(tabs.some((t) => t.dataset.scene === "hosts") ? "hosts" : tabs[0].dataset.scene);
 
   // OS detection
   const ua = navigator.userAgent, plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";

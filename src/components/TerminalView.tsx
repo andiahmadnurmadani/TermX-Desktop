@@ -9,7 +9,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { ArrowDown, ArrowUp, Check, CircleAlert, FolderOpen, KeyRound, Maximize2, Minimize2, RefreshCw, Search, TerminalSquare, X, Zap } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 import { api, Channel, errText, events, type LogEvent, type Settings } from "../lib/api";
-import { termHandles, useStore, type SessionInfo } from "../lib/store";
+import { LOCAL_HOST, termHandles, useStore, type SessionInfo } from "../lib/store";
 import { terminalTheme } from "../lib/themes";
 import { useResolvedDark } from "../lib/theme";
 import { useT } from "../lib/i18n";
@@ -52,6 +52,8 @@ export interface PaneChrome { focused: boolean; maximized: boolean; onFocus: () 
 
 export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: string; hostId: string; visible: boolean; onClose: () => void; pane?: PaneChrome }) {
   const tab = { id: sid, hostId };
+  const isLocal = hostId === LOCAL_HOST;
+  const [shell, setShell] = useState("");
   const t = useT();
   const mountRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -117,13 +119,34 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
       termRef.current = term; fitRef.current = fit; searchRef.current = search;
       fit.fit();
 
-      termHandles.set(tab.id, { write: (text) => api.sshWrite(tab.id, text), focus: () => term.focus() });
+      const outputSubs = new Set<() => void>();
+      const readLines = (from: number) => {
+        const buf = term.buffer.active;
+        const out: string[] = [];
+        for (let i = Math.max(0, from); i < buf.length; i++) {
+          const line = buf.getLine(i);
+          if (!line) continue;
+          const text = line.translateToString(true);
+          if (line.isWrapped && out.length) out[out.length - 1] += text; else out.push(text);
+        }
+        while (out.length && !out[out.length - 1].trim()) out.pop();
+        return out.join("\n");
+      };
+      termHandles.set(tab.id, {
+        hostId: tab.hostId,
+        write: (text) => api.sshWrite(tab.id, text),
+        focus: () => term.focus(),
+        cursorLine: () => term.buffer.active.baseY + term.buffer.active.cursorY,
+        readFrom: readLines,
+        tail: (n) => { const b = term.buffer.active; return readLines(b.baseY + b.cursorY + 1 - n); },
+        onOutput: (cb) => { outputSubs.add(cb); return () => outputSubs.delete(cb); },
+      });
 
       // keys: let app shortcuts bubble; Ctrl+Shift+C/V on Windows/Linux
       term.attachCustomKeyEventHandler((e) => {
         if (e.type !== "keydown") return true;
         if (isMod(e, "f")) { setFind(true); setTimeout(() => findInput.current?.focus(), 0); return false; }
-        if (["k", "w", "t", "[", "]", "enter", "1", "2", "3", "4", "5", "6", "7", "8", "9"].some((k) => isMod(e, k))) return false;
+        if (["k", "w", "t", "j", "l", "[", "]", "enter", "1", "2", "3", "4", "5", "6", "7", "8", "9"].some((k) => isMod(e, k))) return false;
         if (!isMac && e.ctrlKey && e.shiftKey) {
           if (e.key === "C") { const sel = term.getSelection(); if (sel) navigator.clipboard.writeText(sel); return false; }
           if (e.key === "V") { navigator.clipboard.readText().then((x) => term.paste(x)).catch(() => {}); return false; }
@@ -175,7 +198,7 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
       let check = 0;
       ch.onmessage = (buf) => {
         const bytes = new Uint8Array(buf);
-        term.write(bytes);
+        term.write(bytes, () => outputSubs.forEach((f) => f()));
         tail = (tail + dec.decode(bytes, { stream: true })).slice(-400);
         window.clearTimeout(check);
         check = window.setTimeout(() => {
@@ -193,7 +216,8 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
       };
       cleanups.push(() => window.clearTimeout(check));
       try {
-        await api.sshOpen(tab.id, tab.hostId, term.cols, term.rows, ch);
+        if (isLocal) setShell(await api.localOpen(tab.id, term.cols, term.rows, ch));
+        else await api.sshOpen(tab.id, tab.hostId, term.cols, term.rows, ch);
       } catch (e) {
         patchSession(tab.id, { state: "failed", message: errText(e) });
       }
@@ -257,7 +281,7 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
     <div className={"tpane" + (visible ? "" : " hidden") + (pane ? " in-pane" : "") + (pane?.focused ? " focused" : "")} style={{ ["--term-bg" as string]: bg }}
       onMouseDownCapture={pane ? () => { if (!pane.focused) pane.onFocus(); } : undefined}>
       <div className="tbar" onDoubleClick={pane ? (e) => { if ((e.target as HTMLElement).closest("button")) return; pane.onToggleMax(); } : undefined}>
-        <div className="who"><span className={"dot " + state} />{pane && host ? <b className="pane-name">{host.label}</b> : null}{host?.environment && <EnvBadge env={host.environment} />}<span className="addr">{host ? `${host.username}@${host.hostname}` : ""}</span>{host?.tmux && <span className="tag">tmux</span>}</div>
+        <div className="who"><span className={"dot " + state} />{isLocal && <><b className="pane-name">{t("term.local")}</b><span className="addr">{shell.split(/[\\/]/).pop()}</span></>}{pane && host ? <b className="pane-name">{host.label}</b> : null}{host?.environment && <EnvBadge env={host.environment} />}<span className="addr">{host ? `${host.username}@${host.hostname}` : ""}</span>{host?.tmux && <span className="tag">tmux</span>}</div>
         <div className="sp" />
         <div style={{ position: "relative" }}>
           <button className="btn ghost sm" onClick={() => setSnipOpen(!snipOpen)}><Zap size={14} /><span className="lbl">{t("term.snippets")}</span></button>
@@ -272,7 +296,7 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
           )}
         </div>
         <button className="icon-btn" title={t("term.search")} onClick={() => { setFind(!find); setTimeout(() => findInput.current?.focus(), 0); }}><Search size={15} /></button>
-        <button className="icon-btn" title={t("term.sftp")} onClick={() => openSftp(tab.hostId)}><FolderOpen size={15} /></button>
+        {!isLocal && <button className="icon-btn" title={t("term.sftp")} onClick={() => openSftp(tab.hostId)}><FolderOpen size={15} /></button>}
         {pane && <button className="icon-btn" title={t(pane.maximized ? "ws.restore" : "ws.maximize")} onClick={pane.onToggleMax}>{pane.maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</button>}
         {pane && <button className="icon-btn" title={t("ws.closePane")} onClick={onClose}><X size={15} /></button>}
       </div>
@@ -339,7 +363,9 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
               )}
               {state !== "connecting" && (
                 <div className="conn-acts">
-                  <button className="btn primary" onClick={() => { setSteps([]); patchSession(tab.id, { state: "connecting" }); api.sshReconnect(tab.id).catch((e) => toast(errText(e), "error")); }}><RefreshCw size={14} />{t("term.reconnect")}</button>
+                  {isLocal
+                    ? <button className="btn primary" onClick={() => { useStore.getState().openLocal(); onClose(); }}><RefreshCw size={14} />{t("term.restart")}</button>
+                    : <button className="btn primary" onClick={() => { setSteps([]); patchSession(tab.id, { state: "connecting" }); api.sshReconnect(tab.id).catch((e) => toast(errText(e), "error")); }}><RefreshCw size={14} />{t("term.reconnect")}</button>}
                   <button className="btn" onClick={onClose}>{t(pane ? "ws.closePane" : "term.closeTab")}</button>
                 </div>
               )}

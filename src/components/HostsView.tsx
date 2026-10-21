@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Clock, Copy, FolderOpen, FolderPlus, LayoutGrid, Pencil, Plus, Search, Server, Terminal, Trash2, X } from "lucide-react";
+import { Clock, Copy, FolderOpen, FolderPlus, LayoutGrid, Pencil, Plus, Search, Server, SquareTerminal, Terminal, Trash2, X } from "lucide-react";
 import { api, type Env, type Host } from "../lib/api";
 import { useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
@@ -117,6 +117,7 @@ export function HostsView() {
         <div className="title"><h1>{t("hosts.title")}</h1><span className="count-sub">{t("hosts.count", { n: hosts.length })}</span></div>
         <div className="sp" />
         <div className="acts">
+          <button className="btn" onClick={() => useStore.getState().openLocal()} title={t("term.localHint")}><SquareTerminal size={15} /><span className="lbl">{t("term.local")}</span></button>
           <button className="btn" onClick={newGroup}><FolderPlus size={15} /><span className="lbl">{t("hosts.newGroup")}</span></button>
           <button className="btn primary" onClick={() => openHostDialog(null)}><Plus size={15} /><span className="lbl">{t("hosts.new")}</span></button>
         </div>
