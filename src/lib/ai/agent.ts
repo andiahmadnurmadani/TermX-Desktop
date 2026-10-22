@@ -3,6 +3,7 @@ import { api, errText, events, uid, type AiMsg, type AiPart, type AiTool, type H
 import { LOCAL_HOST, termHandles, useStore, type Tab } from "../store";
 import { isCatastrophic, isHeavy, isReadOnly, riskNote } from "./safety";
 import { resolveProvider } from "./providers";
+import { THRESHOLD, SUMMARY_SYSTEM, contextInfo, contextLimit, contextMode, dropOldest, tailStart, transcript, trimOutputs, withSummary, type ContextInfo } from "./context";
 
 /* ------------------------------------------------------------------ state */
 
@@ -32,6 +33,12 @@ interface AiState {
   trustChat: boolean;
   error: string | null;
   usage: { input: number; output: number };
+  /** Input tokens the provider reported for the latest request (the real context size). */
+  lastInput: number;
+  /** True while older messages are being summarized. */
+  compacting: boolean;
+  /** Set after the context was shrunk, so the panel can tell the user. */
+  ctxEvent: { before: number; after: number; kind: "compact" | "trim"; at: number } | null;
   /** Session the user is looking at when they send (the default target). */
   focusSid: string | null;
   setOpen: (b: boolean) => void;
@@ -40,9 +47,9 @@ interface AiState {
 
 export const useAi = create<AiState>((set) => ({
   open: false, history: [], busy: false, stream: "", running: null, runningOutput: "", runningSid: null, approval: null, trustChat: false,
-  error: null, usage: { input: 0, output: 0 }, focusSid: null,
+  error: null, usage: { input: 0, output: 0 }, lastInput: 0, compacting: false, ctxEvent: null, focusSid: null,
   setOpen: (open) => set({ open }),
-  reset: () => { stop(); set({ history: [], stream: "", error: null, trustChat: false, usage: { input: 0, output: 0 }, approval: null, running: null }); },
+  reset: () => { stop(); set({ history: [], stream: "", error: null, trustChat: false, usage: { input: 0, output: 0 }, lastInput: 0, compacting: false, ctxEvent: null, approval: null, running: null }); },
 }));
 
 let reqId: string | null = null;
@@ -478,6 +485,76 @@ async function execTool(name: string, input: Record<string, unknown>, toolId: st
   throw new Error(`Unknown tool ${name}.`);
 }
 
+/* ------------------------------------------------------------------ context budget */
+
+function providerNow() {
+  const ai = useStore.getState().vault!.settings.ai;
+  return { ai, ...resolveProvider(ai ?? { provider: "anthropic", models: {}, baseUrls: {} }) };
+}
+
+/** What the next request would carry, against the current limit. */
+export function currentContext(): ContextInfo {
+  const { ai, model } = providerNow();
+  return contextInfo(buildSystem(), activeTools(), useAi.getState().history, contextLimit(ai, model));
+}
+
+async function summarize(old: Parameters<typeof transcript>[0]): Promise<string> {
+  const { preset, baseUrl, model } = providerNow();
+  const resp = await api.aiChat(uid(), preset.id, {
+    api: preset.api, baseUrl, model, system: SUMMARY_SYSTEM, tools: [], maxTokens: 900,
+    messages: [{ role: "user", content: [{ type: "text", text: `Earlier part of the conversation:\n\n${transcript(old)}` }] }],
+  });
+  const text = resp.content.filter((p) => p.type === "text").map((p) => (p as { text: string }).text).join("\n").trim();
+  if (!text) throw new Error("The summary came back empty.");
+  return text;
+}
+
+/**
+ * Shrink the chat when it nears the budget (or on demand). Long tool output goes first; if that is not enough the
+ * older turns are folded into a summary ("compact") or dropped ("trim"). The newest two turns are never touched.
+ * Returns true when something changed.
+ */
+export async function fitContext(manual = false): Promise<boolean> {
+  const { ai, model } = providerNow();
+  const mode = manual ? "compact" : contextMode(ai);
+  if (mode === "off") return false;
+  const limit = contextLimit(ai, model);
+  const measure = () => contextInfo(buildSystem(), activeTools(), useAi.getState().history, limit);
+  const start = measure();
+  if (!manual && start.total <= limit * THRESHOLD) return false;
+
+  let h = useAi.getState().history;
+  const trimmed = trimOutputs(h);
+  h = trimmed.history;
+  useAi.setState({ history: h });
+  let kind: "compact" | "trim" = "trim";
+  const overhead = start.system + start.tools;
+  if (mode === "trim") {
+    h = dropOldest(h, limit * THRESHOLD, overhead);
+    useAi.setState({ history: h });
+  } else if (manual || measure().total > limit * THRESHOLD) {
+    const cut = tailStart(h) || tailStart(h, 1);
+    if (cut > 0) {
+      useAi.setState({ compacting: true });
+      try {
+        h = withSummary(h, cut, await summarize(h.slice(0, cut)));
+        useAi.setState({ history: h });
+        kind = "compact";
+      } catch (e) {
+        // no summary: fall back to dropping the oldest turns so the request still fits
+        h = dropOldest(h, limit * THRESHOLD, overhead);
+        useAi.setState({ history: h, error: `Could not summarize the older messages (${errText(e)}). They were dropped instead.` });
+      } finally {
+        useAi.setState({ compacting: false });
+      }
+    }
+  }
+  const after = measure();
+  if (after.total >= start.total - 20) return false;
+  useAi.setState({ ctxEvent: { before: start.total, after: after.total, kind, at: Date.now() } });
+  return true;
+}
+
 /* ------------------------------------------------------------------ loop */
 
 const MAX_STEPS = 40;
@@ -496,6 +573,8 @@ export async function send(prompt: string) {
   });
   try {
     for (let step = 0; step < MAX_STEPS && !stopped; step++) {
+      try { await fitContext(false); } catch { /* the request below still goes out */ }
+      if (stopped) break;
       reqId = uid();
       useAi.setState({ stream: "" });
       const resp = await api.aiChat(reqId, preset.id, {
@@ -505,6 +584,7 @@ export async function send(prompt: string) {
       useAi.setState((s) => ({
         history: [...s.history, { role: "assistant", content }], stream: "",
         usage: { input: s.usage.input + resp.inputTokens, output: s.usage.output + resp.outputTokens },
+        lastInput: resp.inputTokens,
       }));
       const calls = content.filter((p): p is Extract<AiPart, { type: "tool_use" }> => p.type === "tool_use");
       if (!calls.length) break;

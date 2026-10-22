@@ -24,6 +24,8 @@ Tauri 2 (Rust) + React + xterm.js. MIT licensed. No account, no cloud, no teleme
   - Providers: Anthropic, OpenAI, Google Gemini, OpenRouter, Groq, DeepSeek, Mistral, xAI, any OpenAI-compatible endpoint, and local models via Ollama or LM Studio.
   - By default every command is typed into a visible terminal, marked "TermX AI is typing", with a Stop button. In Settings you can switch to **background** mode: commands run over a hidden SSH connection and show only in the chat.
   - Answers render Markdown, including tables, quotes and code blocks.
+  - **Context meter** in the composer: a ring with the percentage of the context in use and a breakdown (system prompt, tools, conversation). Pick a limit, and when it reaches 80 % older turns are summarized (or dropped, or left alone). "Compact now" does it on demand; the newest two turns are always kept.
+  - **Chats**: every conversation is saved (encrypted) and listed under the clock icon. Switch, rename, search and delete them; the panel reopens on the latest one.
   - Approval modes: ask for every command, auto-run read-only commands, run everything (production still asks), or **always allow** (no confirmations; only disk- or system-wiping commands still ask).
   - Extra care on production hosts: read-only first, impact and rollback stated before changes, heavy scans need approval.
   - Prompt templates (health check, slow server, disk cleanup, security audit, containers, web server, …), your own saved templates, and custom instructions.

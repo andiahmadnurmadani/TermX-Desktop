@@ -30,7 +30,7 @@
   const names = { mac: "macOS", win: "Windows", linux: "Linux", android: "Android" };
   const hero = document.getElementById("hero-dl");
   if (names[os]) {
-    hero.textContent = C.dlFor.replace("{os}", names[os]);
+    document.getElementById("hero-dl-t").textContent = C.dlFor.replace("{os}", names[os]);
     const row = document.querySelector(`[data-plat="${os}"]`);
     if (row) row.classList.add("here");
   }
@@ -70,6 +70,14 @@
     if (versions.length) document.getElementById("ver").textContent = versions.join(" · ");
     pointHero();
   });
+  // live star count (the baked one shows until this answers)
+  fetch(`https://api.github.com/repos/${C.desktop}`, { headers: { Accept: "application/vnd.github+json" } })
+    .then((r) => (r.ok ? r.json() : null)).catch(() => null)
+    .then((d) => {
+      if (!d || typeof d.stargazers_count !== "number") return;
+      const n = d.stargazers_count, txt = n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "k" : String(n);
+      document.querySelectorAll("[data-stars] [data-n]").forEach((el) => { el.textContent = txt; });
+    });
   // links are baked in at build time; point the hero button at the exact file for this visitor right away
   pointHero();
 })();

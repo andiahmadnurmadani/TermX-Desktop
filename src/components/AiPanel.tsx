@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Activity, ArrowUp, BookMarked, Box, Check, ChevronRight, CircleAlert, CircleHelp, Clock, Code, Copy, CornerDownLeft, Download, Eye, FileText, Gauge, Globe, HardDrive, KeyRound, Layers, ListTree, Loader2, Network, Plus, ScrollText, Search, Server, Shield, ShieldAlert, Sparkles, Square, SquareTerminal, TerminalSquare, Trash2, X, Zap, Braces } from "lucide-react";
+import { Activity, ArrowUp, BookMarked, Box, Check, ChevronRight, CircleAlert, CircleHelp, Clock, Code, Copy, CornerDownLeft, Download, Eye, FileText, Gauge, Globe, HardDrive, KeyRound, Layers, ListTree, Loader2, Network, Plus, ScrollText, Search, Server, Shield, ShieldAlert, Sparkles, Square, SquareTerminal, TerminalSquare, Trash2, X, Zap, Braces, Minimize2 } from "lucide-react";
 import { api, errText, uid, type AiMsg, type AiPart, type AiTemplate } from "../lib/api";
 import { LOCAL_HOST, useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
@@ -10,6 +10,10 @@ import { isMac } from "../lib/util";
 import { confirmDialog } from "../lib/dialogs";
 import { TEMPLATES, TEMPLATE_CATS, fillTemplate, tplText, type PromptTemplate } from "../lib/ai/templates";
 import { PasswordInput } from "./ui";
+import { ContextMeter, fmtTokens } from "./AiContext";
+import { SessionsMenu } from "./AiSessions";
+import { initSessions, newSession } from "../lib/ai/sessions";
+import { summaryOf, withoutSummary } from "../lib/ai/context";
 
 /* ------------------------------------------------------------------ markdown (small, safe subset) */
 
@@ -306,6 +310,17 @@ function groupParts(parts: AiPart[]): ({ kind: "text"; text: string } | { kind: 
   return out;
 }
 
+/** The folded-away start of a long chat, kept as notes the model still sees. */
+function SummaryCard({ text }: { text: string }) {
+  const t = useT();
+  return (
+    <details className="ai-summary">
+      <summary><Minimize2 size={13} />{t("ai.ctx.summary")}</summary>
+      <div className="ai-summary-body"><Markdown text={text} /></div>
+    </details>
+  );
+}
+
 function Messages({ history }: { history: AiMsg[] }) {
   const results = new Map<string, ToolResult>();
   for (const m of history) for (const p of m.content) if (p.type === "tool_result") results.set(p.toolUseId, p);
@@ -313,8 +328,14 @@ function Messages({ history }: { history: AiMsg[] }) {
     <>
       {history.map((m, i) => {
         if (m.role === "user") {
-          const text = m.content.filter((p) => p.type === "text").map((p) => (p as { text: string }).text).join("\n");
-          return text ? <div key={i} className="ai-msg user"><div className="bubble">{text}</div></div> : null;
+          const summary = summaryOf(m);
+          const text = withoutSummary(m).content.filter((p) => p.type === "text").map((p) => (p as { text: string }).text).join("\n");
+          return (
+            <Fragment key={i}>
+              {summary && <SummaryCard text={summary} />}
+              {text ? <div className="ai-msg user"><div className="bubble">{text}</div></div> : null}
+            </Fragment>
+          );
         }
         return (
           <div key={i} className="ai-msg assistant">
@@ -414,7 +435,7 @@ function loadW() { try { const v = Number(localStorage.getItem(W_KEY)); return v
 
 export function AiPanel() {
   const t = useT();
-  const { open, setOpen, history, busy, stream, error, reset, usage } = useAi();
+  const { open, setOpen, history, busy, stream, error, compacting, ctxEvent } = useAi();
   const ai = useStore((s) => s.vault!.settings.ai);
   const tabs = useStore((s) => s.tabs);
   const activeTab = useStore((s) => s.active);
@@ -447,6 +468,11 @@ export function AiPanel() {
 
   useEffect(() => { if (open) api.aiKeyList(PROVIDERS.map((p) => p.id)).then(setKeys).catch(() => setKeys([])); }, [open, setup, ai.provider]);
   useEffect(() => { if (open) setTimeout(() => ta.current?.focus(), 30); }, [open]);
+  useEffect(() => { void initSessions(); }, []);
+  useEffect(() => {
+    if (!ctxEvent) return;
+    useStore.getState().toast(t("ai.ctx.compacted", { a: fmtTokens(ctxEvent.before), b: fmtTokens(ctxEvent.after) }), "info");
+  }, [ctxEvent?.at]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const el = scroller.current;
     if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 160) el.scrollTop = el.scrollHeight;
@@ -497,7 +523,8 @@ export function AiPanel() {
         <span className="ai-title"><Sparkles size={15} />TermX AI</span>
         <button className="ai-model" onClick={() => setSetup(!setup)} title={`${preset.name} · ${model || "—"} — ${t("ai.settings")}`}><span className="ai-model-t"><span className="mono">{model || preset.name}</span></span></button>
         <span className="sp" data-tauri-drag-region />
-        <button className="icon-btn" title={t("ai.newChat")} disabled={!history.length && !error} onClick={reset}><Plus size={15} /></button>
+        <SessionsMenu />
+        <button className="icon-btn" title={t("ai.newChat")} disabled={!history.length && !error} onClick={() => void newSession()}><Plus size={15} /></button>
         <button className="icon-btn" title={t("common.close")} onClick={() => setOpen(false)}><X size={15} /></button>
       </div>
 
@@ -530,7 +557,8 @@ export function AiPanel() {
             </div>
           )}
           <Messages history={history} />
-          {busy && (stream ? <div className="ai-msg assistant"><Markdown text={stream} /></div> : !useAi.getState().running && !useAi.getState().approval && <div className="ai-thinking"><span /><span /><span /></div>)}
+          {compacting && <div className="ai-compacting"><Loader2 size={13} className="spin" />{t("ai.ctx.working")}</div>}
+          {busy && !compacting && (stream ? <div className="ai-msg assistant"><Markdown text={stream} /></div> : !useAi.getState().running && !useAi.getState().approval && <div className="ai-thinking"><span /><span /><span /></div>)}
           {error && <div className="ai-error"><CircleAlert size={14} /><span>{error}</span></div>}
         </div>
       )}
@@ -548,7 +576,7 @@ export function AiPanel() {
             <span className={"chip-ctx " + (ai.approval === "always" ? "warn" : "muted")} title={t("ai.approvalHint")}><span className="ell">{t(("ai.approval." + ai.approval) as never)}</span></span>
             </div>
             <div className="ai-box-end">
-            {usage.input + usage.output > 0 && <span className="ai-usage" title={`${usage.input} in · ${usage.output} out`}>{Math.round((usage.input + usage.output) / 100) / 10}k</span>}
+            <ContextMeter />
             {busy
               ? <button className="ai-send stop" onClick={stop} title={t("ai.stop")}><Square size={11} /></button>
               : <button className="ai-send" onClick={submit} disabled={!input.trim() || !ready} title={`${t("ai.send")} (Enter) · Shift+Enter ↵ · ${isMac ? "⌘J" : "Ctrl+Shift+J"}`}><ArrowUp size={15} /></button>}

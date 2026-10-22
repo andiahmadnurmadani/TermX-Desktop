@@ -246,6 +246,10 @@ pub struct AiSettings {
     /// Where the AI's commands run: "terminal" (typed into the visible terminal) | "background" (a hidden SSH exec; the
     /// command and its output show in the chat only).
     pub run_mode: String,
+    /// Context budget in tokens; 0 = automatic (the model's window, capped at 200k).
+    pub context_limit: u32,
+    /// What to do when the chat nears the budget: "compact" (summarize older messages) | "trim" (drop the oldest) | "off".
+    pub context_mode: String,
     /// The user's own instructions, added to every conversation.
     pub instructions: String,
     /// Saved prompt templates.
@@ -268,6 +272,8 @@ impl Default for AiSettings {
             approval: "ask".into(),
             share_screen: true,
             run_mode: "terminal".into(),
+            context_limit: 0,
+            context_mode: "compact".into(),
             instructions: String::new(),
             templates: vec![],
         }

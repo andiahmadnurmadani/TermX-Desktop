@@ -57,6 +57,12 @@ def releases():
             out[repo] = {"tag": d["tag_name"], "assets": [{"name": a["name"], "url": a["browser_download_url"], "size": a["size"]} for a in d["assets"]]}
         except Exception as ex:
             print("release lookup failed for", repo, "-", ex, "(using cache)" if repo in out else "")
+    try:
+        req = urllib.request.Request(f"https://api.github.com/repos/{DESKTOP_REPO}", headers={"Accept": "application/vnd.github+json"})
+        if os.environ.get("GITHUB_TOKEN"): req.add_header("Authorization", "Bearer " + os.environ["GITHUB_TOKEN"])
+        out["_stars"] = json.load(urllib.request.urlopen(req, timeout=10))["stargazers_count"]
+    except Exception as ex:
+        print("star lookup failed -", ex, "(using cache)" if "_stars" in out else "")
     json.dump(out, open(CACHE, "w"), indent=1)
     return out
 
@@ -86,7 +92,20 @@ ICONS = {
     "send": '<path d="M5 12h13m-5-5 5 5-5 5"/>',
     "arrow": '<path d="M5 12h14m-5-5 5 5-5 5"/>',
     "plus": '<path d="M12 5v14M5 12h14"/>',
+    "star": '<path d="m12 3.6 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8-4.3-4.1 5.9-.9z"/>',
+    "os-win": '<rect x="4" y="4" width="7" height="7" rx="1.2"/><rect x="13" y="4" width="7" height="7" rx="1.2"/><rect x="4" y="13" width="7" height="7" rx="1.2"/><rect x="13" y="13" width="7" height="7" rx="1.2"/>',
+    "os-mac": '<rect x="5" y="5" width="14" height="10" rx="1.8"/><path d="M3 19h18"/>',
+    "os-linux": '<rect x="3.5" y="4.5" width="17" height="15" rx="2.2"/><path d="m7.5 10 3 2.5-3 2.5M13 15h3.5"/>',
+    "os-android": '<rect x="7" y="3" width="10" height="18" rx="2.2"/><path d="M11 18h2"/>',
 }
+
+GITHUB = "M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+
+def stars_text(n):
+    return "" if not isinstance(n, int) else (f"{n / 1000:.1f}k".replace(".0k", "k") if n >= 1000 else str(n))
+
+def gh_icon(cls="ico"):
+    return f'<svg class="{cls}" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="{GITHUB}"/></svg>'
 
 def icon(name, cls="ico"):
     return f'<svg class="{cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{ICONS[name]}</svg>'
@@ -155,7 +174,7 @@ def page(lang, rels):
             href = a["url"] if a else f'https://github.com/{ANDROID_REPO if fid=="android" else DESKTOP_REPO}/releases/latest'
             btns += (f'<a class="dl" data-dl="{fid}" href="{e(href)}" rel="noopener">'
                      f'<span class="dn">{e(label)}</span><span class="de">{e(ext)}</span><span class="dm" data-meta>{mb(a["size"]) if a else ""}</span>{icon("update", "ico dli")}</a>')
-        plats += (f'<div class="plat reveal" data-plat="{pid}"><div class="pn"><h3>{e(name)}</h3><span class="req">{e(req)}</span>'
+        plats += (f'<div class="plat reveal" data-plat="{pid}"><div class="pn"><h3>{icon("os-" + pid, "ico pi")}{e(name)}</h3><span class="req">{e(req)}</span>'
                   f'<span class="here-tag">{e(t["d_here"])}</span></div><div class="pf">{btns}</div></div>')
 
     faq = "".join(f'<details class="qa"{" open" if i == 0 else ""}><summary><span>{e(q)}</span>{icon("plus", "ico qi")}</summary><div class="ans"><p>{a}</p></div></details>' for i, (q, a) in enumerate(t["faq"]))
@@ -165,7 +184,7 @@ def page(lang, rels):
         "license": "https://opensource.org/licenses/MIT", "url": SITE + t["self_href"], "description": t["desc"]})
     cfg = json.dumps({"desktop": DESKTOP_REPO, "android": ANDROID_REPO, "dlFor": t["cta_dl_for"], "dl": t["cta_dl"], "checking": t["d_checking"]})
     nav = (f'<a href="#features">{e(t["nav_features"])}</a><a href="#ai">{e(t["nav_ai"])}</a><a href="#screens">{e(t["nav_screens"])}</a>'
-           f'<a href="#inside">{e(t["nav_arch"])}</a><a href="#faq">{e(t["nav_faq"])}</a><a href="{GH}" rel="noopener">{e(t["nav_github"])}</a>')
+           f'<a href="#inside">{e(t["nav_arch"])}</a><a href="#faq">{e(t["nav_faq"])}</a><a class="gh" href="{GH}" rel="noopener" title="{e(t["star_tip"])}">{gh_icon("ico gi")}{e(t["nav_github"])}<span class="stars sm" data-stars>{icon("star", "ico si")}<b data-n>{stars_text(rels.get("_stars"))}</b></span></a>')
     return f'''<!doctype html>
 <html lang="{t["html_lang"]}">
 <head>
@@ -215,8 +234,8 @@ def page(lang, rels):
       <p class="lede">{e(t["lede"])}</p>
       <div class="hero-act">
         <div class="cta">
-          <a class="btn primary" id="hero-dl" href="#download">{e(t["cta_dl"])}</a>
-          <a class="btn" href="{GH}" rel="noopener">{e(t["cta_src"])}</a>
+          <a class="btn primary lg" id="hero-dl" href="#download">{icon("update", "ico bi")}<span id="hero-dl-t">{e(t["cta_dl"])}</span></a>
+          <a class="btn lg ghb" href="{GH}" rel="noopener" title="{e(t["star_tip"])}">{gh_icon("ico bi")}<span>{e(t["cta_src"])}</span><span class="stars" data-stars>{icon("star", "ico si")}<b data-n>{stars_text(rels.get("_stars"))}</b></span></a>
         </div>
         <p class="meta"><span>{e(t["platforms_line"])}</span>{f'<span>{e(dtag)}</span>' if dtag else ''}</p>
       </div>

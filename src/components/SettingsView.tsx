@@ -10,6 +10,8 @@ import { uiFontStack, useResolvedDark } from "../lib/theme";
 import { useUpdater } from "../lib/updater";
 import { Field, Modal, PasswordInput, Seg, Switch } from "./ui";
 import { AiSetup } from "./AiPanel";
+import { fmtTokens } from "./AiContext";
+import { LIMIT_PRESETS } from "../lib/ai/context";
 
 const ACCENTS = ["#3ddc97", "#5aa9ff", "#b58cff", "#ff8ab3", "#ffb35c", "#f2d45c", "#5fd7e0", "#ff6b6b"];
 const FONTS = ["JetBrains Mono", "Menlo", "SF Mono", "Monaco", "Consolas", "Cascadia Code", "Fira Code", "Source Code Pro", "IBM Plex Mono", "Hack", "DejaVu Sans Mono", "Ubuntu Mono"];
@@ -251,6 +253,14 @@ export function SettingsView() {
         <h2>{t("ai.title")}</h2>
         <div className="panel list">
           <div className="setting ai-setting"><div className="meta"><div>{t("ai.provider")}</div><small>{t("ai.setupBody")}</small></div><div className="ctl"><AiSetup /></div></div>
+          <Row title={t("ai.ctx.settingsLimit")} hint={t("ai.ctx.settingsLimitHint")}>
+            <Seg value={String(s.ai.contextLimit ?? 0)} onChange={(v) => saveSettings({ ai: { ...s.ai, contextLimit: Number(v) } })}
+              options={[{ v: "0", label: t("ai.ctx.auto") }, ...LIMIT_PRESETS.map((n) => ({ v: String(n), label: fmtTokens(n) }))]} />
+          </Row>
+          <Row title={t("ai.ctx.settingsMode")} hint={t("ai.ctx.settingsModeHint")}>
+            <Seg value={s.ai.contextMode ?? "compact"} onChange={(v) => saveSettings({ ai: { ...s.ai, contextMode: v } })}
+              options={[{ v: "compact", label: t("ai.ctx.mode.compact").split(":")[0] }, { v: "trim", label: t("ai.ctx.mode.trim").split(":")[0] }, { v: "off", label: t("ai.ctx.mode.off").split(":")[0] }]} />
+          </Row>
           <Row title={t("ai.runMode.title")} hint={t("ai.runMode.hint")}>
             <Seg value={s.ai.runMode ?? "terminal"} onChange={(v) => saveSettings({ ai: { ...s.ai, runMode: v } })}
               options={[{ v: "terminal", label: t("ai.runMode.terminal") }, { v: "background", label: t("ai.runMode.background") }]} />

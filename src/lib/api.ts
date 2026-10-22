@@ -28,6 +28,8 @@ export interface AiSettings {
   approval: "ask" | "safe" | "auto" | "always"; shareScreen: boolean;
   /** where the AI's commands run: typed into the visible terminal, or a hidden SSH exec shown only in the chat */
   runMode: "terminal" | "background";
+  /** context budget in tokens (0 = automatic) and what to do when the chat nears it */
+  contextLimit: number; contextMode: "compact" | "trim" | "off";
   instructions: string; templates: AiTemplate[];
 }
 export interface AiTemplate { id: string; name: string; prompt: string }
@@ -143,6 +145,8 @@ export const api = {
   aiKeyList: (providers: string[]) => invoke<string[]>("ai_key_list", { providers }),
   historyLoad: () => invoke<string>("history_load"),
   historySave: (data: string) => invoke<void>("history_save", { data }),
+  aiSessionsLoad: () => invoke<string>("ai_sessions_load"),
+  aiSessionsSave: (data: string) => invoke<void>("ai_sessions_save", { data }),
   aiChat: (reqId: string, provider: string, req: AiChatReq) => invoke<AiChatResp>("ai_chat", { reqId, provider, req }),
   aiCancel: (reqId: string) => invoke<void>("ai_cancel", { reqId }),
   aiModels: (provider: string, api: string, baseUrl: string) => invoke<string[]>("ai_models", { provider, api, baseUrl }),

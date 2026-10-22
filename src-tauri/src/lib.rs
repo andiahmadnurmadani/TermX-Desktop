@@ -346,6 +346,24 @@ fn history_save(state: State<'_, AppState>, data: String) -> CmdResult<()> {
     state.store.meta_set(HISTORY_KEY, &state.sb.encrypt(&data).map_err(err)?).map_err(err)
 }
 
+const AI_SESSIONS_KEY: &str = "ai_sessions";
+
+#[tauri::command]
+fn ai_sessions_load(state: State<'_, AppState>) -> CmdResult<String> {
+    match state.store.meta_get(AI_SESSIONS_KEY).map_err(err)? {
+        Some(enc) if !enc.is_empty() => state.sb.decrypt(&enc).map_err(err),
+        _ => Ok(String::new()),
+    }
+}
+
+#[tauri::command]
+fn ai_sessions_save(state: State<'_, AppState>, data: String) -> CmdResult<()> {
+    if data.is_empty() {
+        return state.store.meta_delete(AI_SESSIONS_KEY).map_err(err);
+    }
+    state.store.meta_set(AI_SESSIONS_KEY, &state.sb.encrypt(&data).map_err(err)?).map_err(err)
+}
+
 /// Providers that have a saved key (keys themselves never go to the UI).
 #[tauri::command]
 fn ai_key_list(state: State<'_, AppState>, providers: Vec<String>) -> CmdResult<Vec<String>> {
@@ -996,6 +1014,8 @@ pub fn run() {
             ai_key_list,
             history_load,
             history_save,
+            ai_sessions_load,
+            ai_sessions_save,
             ai_chat,
             ai_cancel,
             ai_models,
