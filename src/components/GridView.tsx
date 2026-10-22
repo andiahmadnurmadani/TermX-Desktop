@@ -1,11 +1,12 @@
+import { OsIcon } from "../lib/os";
 import { useMemo, useRef, useState } from "react";
-import { Columns2, Rows2, Save, Search, Server, Square, LayoutGrid } from "lucide-react";
+import { Columns2, Rows2, Save, Search, Square, LayoutGrid } from "lucide-react";
 import type { Layout } from "../lib/api";
 import { useStore, type Tab } from "../lib/store";
 import { useT } from "../lib/i18n";
 import { promptDialog } from "../lib/dialogs";
 import { TerminalView } from "./TerminalView";
-import { EnvBadge, hostColor } from "./HostsView";
+import { EnvBadge } from "./HostsView";
 
 interface Rect { l: number; t: number; w: number; h: number }
 
@@ -137,7 +138,7 @@ function PanePicker({ onPick, onFocus, n }: { onPick: (hostId: string) => void; 
         {list.length === 0 && <div className="pp-empty">{hosts.length ? t("hosts.noresults") : t("hosts.empty.title")}</div>}
         {list.slice(0, 50).map((h) => (
           <button key={h.id} className="pp-item" onClick={() => onPick(h.id)}>
-            <Server size={14} style={{ color: hostColor(h.color) }} />
+            <OsIcon host={h} size={24} />
             <span className="pp-label">{h.label}</span>
             <span className="pp-sub">{h.username}@{h.hostname}</span>
             {h.environment && <EnvBadge env={h.environment} />}
