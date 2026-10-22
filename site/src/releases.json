@@ -1,90 +1,90 @@
 {
  "andiahmadnurmadani/TermX-Desktop": {
-  "tag": "v1.4.2",
+  "tag": "v1.5.0",
   "assets": [
    {
     "name": "latest.json",
-    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.4.2/latest.json",
+    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.5.0/latest.json",
     "size": 6719
    },
    {
-    "name": "TermX-1.4.2-1.x86_64.rpm",
-    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.4.2/TermX-1.4.2-1.x86_64.rpm",
-    "size": 8162570
+    "name": "TermX-1.5.0-1.x86_64.rpm",
+    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.5.0/TermX-1.5.0-1.x86_64.rpm",
+    "size": 8169707
    },
    {
-    "name": "TermX-1.4.2-1.x86_64.rpm.sig",
-    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.4.2/TermX-1.4.2-1.x86_64.rpm.sig",
+    "name": "TermX-1.5.0-1.x86_64.rpm.sig",
+    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.5.0/TermX-1.5.0-1.x86_64.rpm.sig",
     "size": 432
    },
    {
-    "name": "TermX_1.4.2_aarch64.dmg",
-    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.4.2/TermX_1.4.2_aarch64.dmg",
-    "size": 7629778
+    "name": "TermX_1.5.0_aarch64.dmg",
+    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.5.0/TermX_1.5.0_aarch64.dmg",
+    "size": 7642372
    },
    {
-    "name": "TermX_1.4.2_amd64.AppImage",
-    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.4.2/TermX_1.4.2_amd64.AppImage",
-    "size": 86039032
+    "name": "TermX_1.5.0_amd64.AppImage",
+    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.5.0/TermX_1.5.0_amd64.AppImage",
+    "size": 86026744
    },
    {
-    "name": "TermX_1.4.2_amd64.AppImage.sig",
-    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.4.2/TermX_1.4.2_amd64.AppImage.sig",
+    "name": "TermX_1.5.0_amd64.AppImage.sig",
+    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.5.0/TermX_1.5.0_amd64.AppImage.sig",
     "size": 436
    },
    {
-    "name": "TermX_1.4.2_amd64.deb",
-    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.4.2/TermX_1.4.2_amd64.deb",
-    "size": 8158482
+    "name": "TermX_1.5.0_amd64.deb",
+    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.5.0/TermX_1.5.0_amd64.deb",
+    "size": 8163504
    },
    {
-    "name": "TermX_1.4.2_amd64.deb.sig",
-    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.4.2/TermX_1.4.2_amd64.deb.sig",
+    "name": "TermX_1.5.0_amd64.deb.sig",
+    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.5.0/TermX_1.5.0_amd64.deb.sig",
     "size": 428
    },
    {
-    "name": "TermX_1.4.2_x64-setup.exe",
-    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.4.2/TermX_1.4.2_x64-setup.exe",
-    "size": 5602891
+    "name": "TermX_1.5.0_x64-setup.exe",
+    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.5.0/TermX_1.5.0_x64-setup.exe",
+    "size": 5617824
    },
    {
-    "name": "TermX_1.4.2_x64-setup.exe.sig",
-    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.4.2/TermX_1.4.2_x64-setup.exe.sig",
+    "name": "TermX_1.5.0_x64-setup.exe.sig",
+    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.5.0/TermX_1.5.0_x64-setup.exe.sig",
     "size": 432
    },
    {
-    "name": "TermX_1.4.2_x64.dmg",
-    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.4.2/TermX_1.4.2_x64.dmg",
-    "size": 8199368
+    "name": "TermX_1.5.0_x64.dmg",
+    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.5.0/TermX_1.5.0_x64.dmg",
+    "size": 8219389
    },
    {
-    "name": "TermX_1.4.2_x64_en-US.msi",
-    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.4.2/TermX_1.4.2_x64_en-US.msi",
-    "size": 7471104
+    "name": "TermX_1.5.0_x64_en-US.msi",
+    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.5.0/TermX_1.5.0_x64_en-US.msi",
+    "size": 7495680
    },
    {
-    "name": "TermX_1.4.2_x64_en-US.msi.sig",
-    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.4.2/TermX_1.4.2_x64_en-US.msi.sig",
+    "name": "TermX_1.5.0_x64_en-US.msi.sig",
+    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.5.0/TermX_1.5.0_x64_en-US.msi.sig",
     "size": 432
    },
    {
     "name": "TermX_aarch64.app.tar.gz",
-    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.4.2/TermX_aarch64.app.tar.gz",
-    "size": 7679407
+    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.5.0/TermX_aarch64.app.tar.gz",
+    "size": 7693121
    },
    {
     "name": "TermX_aarch64.app.tar.gz.sig",
-    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.4.2/TermX_aarch64.app.tar.gz.sig",
+    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.5.0/TermX_aarch64.app.tar.gz.sig",
     "size": 420
    },
    {
     "name": "TermX_x64.app.tar.gz",
-    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.4.2/TermX_x64.app.tar.gz",
-    "size": 8183978
+    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.5.0/TermX_x64.app.tar.gz",
+    "size": 8195398
    },
    {
     "name": "TermX_x64.app.tar.gz.sig",
-    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.4.2/TermX_x64.app.tar.gz.sig",
+    "url": "https://github.com/andiahmadnurmadani/TermX-Desktop/releases/download/v1.5.0/TermX_x64.app.tar.gz.sig",
     "size": 420
    }
   ]
