@@ -126,7 +126,7 @@ export default function App() {
           </div>
           <div className="grow" data-tauri-drag-region />
           <AiButton />
-          <button className="pal" style={{ marginBottom: 9 }} onClick={() => setPalette(true)}><Search size={13} />{t("palette.placeholder").replace("…", "")}<span className="kbd">{modLabel}K</span></button>
+          <button className="pal" onClick={() => setPalette(true)}><Search size={13} />{t("palette.placeholder").replace("…", "")}<span className="kbd">{modLabel}K</span></button>
         </div>
 
         <div className="content">

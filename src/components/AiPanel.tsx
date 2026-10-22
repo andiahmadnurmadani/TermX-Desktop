@@ -444,7 +444,7 @@ export function AiPanel() {
       <div className="ai-resize" onPointerDown={startResize} onDoubleClick={() => { setWidth(clampW(460)); try { localStorage.removeItem(W_KEY); } catch { /* ignore */ } }} title={t("ai.resize")} />
       <div className="ai-head" data-tauri-drag-region>
         <span className="ai-title"><Sparkles size={15} />TermX AI</span>
-        <button className="ai-model" onClick={() => setSetup(!setup)} title={t("ai.settings")}>{preset.name} · <span className="mono">{model || "—"}</span></button>
+        <button className="ai-model" onClick={() => setSetup(!setup)} title={t("ai.settings")}><span className="ai-model-t">{preset.name} · <span className="mono">{model || "—"}</span></span></button>
         <span className="sp" data-tauri-drag-region />
         <button className="icon-btn" title={t("ai.newChat")} disabled={!history.length && !error} onClick={reset}><Plus size={15} /></button>
         <button className="icon-btn" title={t("common.close")} onClick={() => setOpen(false)}><X size={15} /></button>

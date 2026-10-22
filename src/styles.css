@@ -85,14 +85,14 @@ svg { flex-shrink: 0; }
 .dot.failed, .dot.ended { background: var(--danger); }
 @keyframes pulse { 50% { opacity: .35; } }
 .tabbar .grow { flex: 1; height: 100%; }
-.tabbar .pal { align-self: center; height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); color: var(--text-3); display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.tabbar .pal { align-self: center; height: 28px; margin: 0; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); color: var(--text-3); display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .tabbar .pal:hover { background: var(--hover); color: var(--text-2); }
 .tabbar .pal { flex-shrink: 0; }
 
 /* custom title bar (Windows / Linux): window controls sit top-right, over whatever reaches that corner */
-.winctl { position: fixed; top: 0; right: 0; height: 46px; display: flex; align-items: center; z-index: 900; -webkit-app-region: no-drag; }
+.winctl { position: fixed; top: 0; right: 0; height: 45px; display: flex; align-items: center; z-index: 900; -webkit-app-region: no-drag; }
 .winctl button { color: var(--text-2); display: grid; place-items: center; transition: background .12s, color .12s; }
-.winctl.win button { width: 46px; height: 46px; }
+.winctl.win button { width: 46px; height: 45px; }
 .winctl.win button:hover { background: var(--hover); color: var(--text); }
 .winctl.win button.close:hover { background: #e81123; color: #fff; }
 .winctl.gtk { gap: 10px; padding: 0 14px 0 8px; }
@@ -626,7 +626,7 @@ input::-webkit-credentials-auto-fill-button, input::-webkit-contacts-auto-fill-b
 .side-bottom .lock-btn { margin-top: 0; }
 
 /* ------------------------------------------------------------------ AI assistant */
-.ai-btn { height: 28px; margin: 0 8px 9px 0; padding: 0 11px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12.5px;
+.ai-btn { height: 28px; align-self: center; margin: 0 8px 0 0; padding: 0 11px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12.5px;
   color: var(--text-2); border: 1px solid var(--border); background: var(--surface); transition: all .12s; }
 .ai-btn:hover { color: var(--text); border-color: var(--border-strong); }
 .ai-btn svg { color: var(--accent); }
@@ -755,9 +755,10 @@ button.chip-ctx { cursor: pointer; border: 0; }
 /* ------------------------------------------------------------------ AI panel layout (v1.4) */
 .ai-head { height: 46px; flex-shrink: 0; display: flex; align-items: center; gap: 6px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--border); }
 .ai-head .sp { flex: 1; align-self: stretch; }
-.ai-title { display: inline-flex; align-items: center; gap: 7px; font-weight: 650; font-size: 13.5px; white-space: nowrap; }
+.ai-title { flex-shrink: 0; display: inline-flex; align-items: center; gap: 7px; font-weight: 650; font-size: 13.5px; white-space: nowrap; }
 .ai-title svg { color: var(--accent); }
-.ai-model { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-2); height: 24px; padding: 0 9px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-model { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-2); height: 24px; padding: 0 9px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); max-width: 200px; min-width: 0; flex: 0 1 auto; white-space: nowrap; }
+.ai-model .ai-model-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; line-height: 1; }
 .ai-model::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
 .ai-model:hover { color: var(--text); border-color: var(--border-strong); }
 .ai-body { flex: 1; overflow-y: auto; padding: 18px 16px 12px; display: flex; flex-direction: column; gap: 18px; }
