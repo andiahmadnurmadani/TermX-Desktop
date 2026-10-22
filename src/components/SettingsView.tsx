@@ -251,6 +251,10 @@ export function SettingsView() {
         <h2>{t("ai.title")}</h2>
         <div className="panel list">
           <div className="setting ai-setting"><div className="meta"><div>{t("ai.provider")}</div><small>{t("ai.setupBody")}</small></div><div className="ctl"><AiSetup /></div></div>
+          <Row title={t("ai.runMode.title")} hint={t("ai.runMode.hint")}>
+            <Seg value={s.ai.runMode ?? "terminal"} onChange={(v) => saveSettings({ ai: { ...s.ai, runMode: v } })}
+              options={[{ v: "terminal", label: t("ai.runMode.terminal") }, { v: "background", label: t("ai.runMode.background") }]} />
+          </Row>
           <Row title={t("ai.approvalTitle")} hint={t("ai.approvalHint")}>
             <Seg value={s.ai.approval} onChange={async (v) => { if (v === "always" && !(await confirmDialog(t("ai.alwaysConfirm")))) return; saveSettings({ ai: { ...s.ai, approval: v } }); }}
               options={[{ v: "ask", label: t("ai.approval.ask") }, { v: "safe", label: t("ai.approval.safe") }, { v: "auto", label: t("ai.approval.auto") }, { v: "always", label: t("ai.approval.always") }]} />

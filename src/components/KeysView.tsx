@@ -33,7 +33,7 @@ export function KeysView() {
               <div className="avatar" style={{ ["--hc" as string]: "var(--accent)", width: 36, height: 36 }}><KeyRound size={17} /></div>
               <div className="grow">
                 <div className="ttl">{k.name} <span className="tag">{k.kind}</span></div>
-                <div className="sub mono" style={{ fontSize: 11 }}>{k.fingerprint}</div>
+                <div className="sub mono" style={{ fontSize: 11 }} title={k.fingerprint}>{k.fingerprint}</div>
                 {k.installedOn.length > 0 && (
                   <div className="sub">{t("keys.installed")}: {k.installedOn.map((id) => hosts.find((h) => h.id === id)?.label).filter(Boolean).join(", ")}</div>
                 )}

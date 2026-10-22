@@ -26,6 +26,8 @@ export interface Settings {
 export interface AiSettings {
   provider: string; models: Record<string, string>; baseUrls: Record<string, string>;
   approval: "ask" | "safe" | "auto" | "always"; shareScreen: boolean;
+  /** where the AI's commands run: typed into the visible terminal, or a hidden SSH exec shown only in the chat */
+  runMode: "terminal" | "background";
   instructions: string; templates: AiTemplate[];
 }
 export interface AiTemplate { id: string; name: string; prompt: string }

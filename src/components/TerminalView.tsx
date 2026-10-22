@@ -377,7 +377,7 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
       <div className="tbar" onDoubleClick={pane ? (e) => { if ((e.target as HTMLElement).closest("button")) return; pane.onToggleMax(); } : undefined}>
         <div className="who"><span className={"dot " + state} />{isLocal && <><b className="pane-name">{t("term.local")}</b><span className="addr">{shell.split(/[\\/]/).pop()}</span></>}{pane && host ? <b className="pane-name">{host.label}</b> : null}{host?.environment && <EnvBadge env={host.environment} />}<span className="addr">{host ? `${host.username}@${host.hostname}` : ""}</span>{host?.tmux && <span className="tag">tmux</span>}</div>
         <div className="sp" />
-        {aiHere && <span className="ai-typing" title={t("ai.typingHint")}><i />{t("ai.typing")}<button onClick={() => stopAi()}>{t("ai.stopShort")}</button></span>}
+        {aiHere && <span className="ai-typing" title={t("ai.typingHint")}><i /><span className="ai-typing-t">{t("ai.typing")}</span><button onClick={() => stopAi()}>{t("ai.stopShort")}</button></span>}
         <div style={{ position: "relative" }}>
           <button className="btn ghost sm" onClick={() => setSnipOpen(!snipOpen)}><Braces size={14} /><span className="lbl">{t("term.snippets")}</span></button>
           {snipOpen && (

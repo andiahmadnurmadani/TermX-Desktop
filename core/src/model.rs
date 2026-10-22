@@ -243,6 +243,9 @@ pub struct AiSettings {
     pub approval: String,
     /// Send the visible terminal screen with each request.
     pub share_screen: bool,
+    /// Where the AI's commands run: "terminal" (typed into the visible terminal) | "background" (a hidden SSH exec; the
+    /// command and its output show in the chat only).
+    pub run_mode: String,
     /// The user's own instructions, added to every conversation.
     pub instructions: String,
     /// Saved prompt templates.
@@ -264,6 +267,7 @@ impl Default for AiSettings {
             base_urls: Default::default(),
             approval: "ask".into(),
             share_screen: true,
+            run_mode: "terminal".into(),
             instructions: String::new(),
             templates: vec![],
         }

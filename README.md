@@ -22,7 +22,8 @@ Tauri 2 (Rust) + React + xterm.js. MIT licensed. No account, no cloud, no teleme
 - **AI assistant** (`Ctrl/⌘+J`): describe what you want and the assistant types and runs the commands in your terminal while you watch.
   - It knows your hosts, groups, open sessions, the visible screen, snippets and workflows, so you can say "check disk on the NAS".
   - Providers: Anthropic, OpenAI, Google Gemini, OpenRouter, Groq, DeepSeek, Mistral, xAI, any OpenAI-compatible endpoint, and local models via Ollama or LM Studio.
-  - Every command is typed into a visible terminal, marked "TermX AI is typing", with a Stop button.
+  - By default every command is typed into a visible terminal, marked "TermX AI is typing", with a Stop button. In Settings you can switch to **background** mode: commands run over a hidden SSH connection and show only in the chat.
+  - Answers render Markdown, including tables, quotes and code blocks.
   - Approval modes: ask for every command, auto-run read-only commands, run everything (production still asks), or **always allow** (no confirmations; only disk- or system-wiping commands still ask).
   - Extra care on production hosts: read-only first, impact and rollback stated before changes, heavy scans need approval.
   - Prompt templates (health check, slow server, disk cleanup, security audit, containers, web server, …), your own saved templates, and custom instructions.

@@ -6,7 +6,7 @@
         "title": "TermX",
         "width": 1180,
         "height": 740,
-        "minWidth": 860,
+        "minWidth": 960,
         "minHeight": 520,
         "center": true,
         "decorations": false,

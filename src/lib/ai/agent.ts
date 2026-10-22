@@ -119,6 +119,7 @@ export function buildSystem(): string {
   const st = useStore.getState();
   const v = st.vault!;
   const s = v.settings;
+  const background = s.ai?.runMode === "background";
   const groups = new Map(v.groups.map((g) => [g.id, g.name]));
   const hosts = hostsById();
   const sessions = listSessions();
@@ -144,7 +145,7 @@ You operate the user's machines by typing commands into their real terminal sess
 - Keep output small: filter with grep/awk/sort/head, use human-readable flags (-h). Avoid scanning whole filesystems (find / or du / without limits); start from likely places (/var/log, /var/lib/docker, /home, /opt, /srv) with -xdev and --max-depth.
 - If a command fails, read the error and fix the cause (missing tool, wrong path, permission). Do not repeat the same failing command. If sudo is needed, use sudo -n first to see whether it needs a password; TermX can fill the saved password in a terminal.
 - If something interactive is running (a pager, a prompt, a TUI), use send_keys ("q", "<ctrl-c>") to get back to the shell. If a prompt asks for input you cannot provide (passwords, passphrases, 2FA), stop and tell the user.
-- Everything you do must be visible: run every command with run_command so it is typed into the user's terminal and they can watch it. To read a file, use run_command with cat, sed -n or tail (limit the lines). Use host_overview only for a quick multi-host summary.
+${background ? "- Commands run in the background over SSH: they are NOT typed into the user's terminal; the user sees each command and its output only in this chat. Use run_command as usual (one non-interactive command per call, no TTY, so no sudo password prompts and no pagers). Use open_terminal and send_keys only when something really needs an interactive terminal. To read a file, use cat, sed -n or tail (limit the lines)." : "- Everything you do must be visible: run every command with run_command so it is typed into the user's terminal and they can watch it. To read a file, use run_command with cat, sed -n or tail (limit the lines). Use host_overview only for a quick multi-host summary."}
 
 # Safety
 - Hosts marked PRODUCTION follow the production rules below. The user approves each command that changes something.
@@ -235,6 +236,17 @@ export const TOOLS: AiTool[] = [
   { name: "save_snippet", description: "Save a command as a TermX snippet so the user can reuse it.",
     parameters: { type: "object", properties: { name: str, command: str, description: str }, required: ["name", "command"] } },
 ];
+
+const runMode = (): "terminal" | "background" => (useStore.getState().vault?.settings.ai?.runMode === "background" ? "background" : "terminal");
+
+/** The tool list for the current run mode: in the background mode run_command no longer types into a terminal. */
+function activeTools(): AiTool[] {
+  if (runMode() !== "background") return TOOLS;
+  return TOOLS.map((t) => t.name !== "run_command" ? t : {
+    ...t,
+    description: "Run one non-interactive shell command on a host over SSH, in the background (it is not typed into the terminal; the user sees the command and its output in the chat). Returns stdout, stderr and the exit code. Give host_id (or session_id to use that session's host). For anything interactive use open_terminal and send_keys.",
+  });
+}
 
 const KEYS: Record<string, string> = {
   enter: "\r", "ctrl-c": "\x03", "ctrl-d": "\x04", "ctrl-z": "\x1a", "ctrl-l": "\x0c", "ctrl-u": "\x15", esc: "\x1b", tab: "\t", space: " ",
@@ -364,11 +376,48 @@ async function runCommand(sid: string, command: string, timeoutSec: number): Pro
 /** Reminder on every result from a production host, so caution survives a long conversation. */
 const prodNote = (h: Host | undefined) => (h?.environment === "production" ? `[PRODUCTION host "${h.label}": production rules apply. Verify before and after any change.]\n` : "");
 
+/** The SSH host a background command should run on, or null when it has to go through a terminal (local shell). */
+function backgroundHost(input: Record<string, unknown>): string | null {
+  const sid = input.session_id ? String(input.session_id) : null;
+  const hid = (sid ? termHandles.get(sid)?.hostId : null) ?? (input.host_id ? String(input.host_id) : null) ?? (useAi.getState().focusSid ? termHandles.get(useAi.getState().focusSid!)?.hostId : null) ?? null;
+  return hid && hid !== LOCAL_HOST && hostOf(hid) ? hid : null;
+}
+
+/** Run a command over a hidden SSH exec channel: same approval rules, but nothing is typed into a terminal. */
+async function execHidden(hostId: string, input: Record<string, unknown>, toolId: string): Promise<{ content: string; isError: boolean }> {
+  const host = hostOf(hostId);
+  let command = String(input.command ?? "").trim();
+  if (!command) throw new Error("Empty command.");
+  if (needsApproval("command", command, host)) {
+    const r = await ask({ toolId, kind: "command", command, hostLabel: labelOf(hostId), production: host?.environment === "production", risk: riskNote(command) });
+    if (!r.ok) return { content: `The user declined to run this.${r.note ? ` They said: ${r.note}` : ""}`, isError: true };
+    if (r.command && r.command !== command) command = r.command;
+  }
+  useAi.setState({ running: toolId, runningOutput: "" });
+  const secs = Math.min(600, Math.max(1, Number(input.timeout_sec) || 30));
+  let timer: number | undefined;
+  try {
+    const out = await Promise.race([
+      api.sshExec(hostId, command),
+      new Promise<never>((_, rej) => { timer = window.setTimeout(() => rej(new Error(`Timed out after ${secs}s. The command may still be running on the host.`)), secs * 1000); }),
+    ]);
+    const body = [out.stdout.trimEnd(), out.stderr.trim() && `[stderr]\n${out.stderr.trimEnd()}`].filter(Boolean).join("\n");
+    const edited = command !== String(input.command ?? "").trim() ? `(The user edited the command to: ${command})\n` : "";
+    return { content: `${prodNote(host)}${edited}$ ${command}\n${clip(body || "(no output)", 6000)}\n[exit ${out.exit ?? "?"}]`, isError: false };
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 async function execTool(name: string, input: Record<string, unknown>, toolId: string): Promise<{ content: string; isError: boolean; label?: string }> {
   const ok = (content: string) => ({ content, isError: false });
   switch (name) {
     case "run_command":
     case "send_keys": {
+      if (name === "run_command" && runMode() === "background") {
+        const hid = backgroundHost(input);
+        if (hid) return execHidden(hid, input, toolId);
+      }
       const sid = await pickSession(input);
       const h = termHandles.get(sid)!;
       const host = hostOf(h.hostId);
@@ -450,7 +499,7 @@ export async function send(prompt: string) {
       reqId = uid();
       useAi.setState({ stream: "" });
       const resp = await api.aiChat(reqId, preset.id, {
-        api: preset.api, baseUrl, model, system: buildSystem(), messages: useAi.getState().history, tools: TOOLS,
+        api: preset.api, baseUrl, model, system: buildSystem(), messages: useAi.getState().history, tools: activeTools(),
       });
       const content = resp.content.length ? resp.content : [{ type: "text", text: "" } as AiPart];
       useAi.setState((s) => ({

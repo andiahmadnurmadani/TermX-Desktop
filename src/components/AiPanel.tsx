@@ -15,13 +15,15 @@ import { PasswordInput } from "./ui";
 
 function inline(text: string, key: string): ReactNode[] {
   const out: ReactNode[] = [];
-  const re = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\[[^\]\n]+\]\(https?:\/\/[^)\s]+\))/g;
+  const re = /(`[^`\n]+`|\*\*[^*\n]+\*\*|~~[^~\n]+~~|(?<![\w*])\*[^*\s][^*\n]*?\*(?![\w*])|\[[^\]\n]+\]\(https?:\/\/[^)\s]+\))/g;
   let last = 0, m: RegExpExecArray | null, i = 0;
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index));
     const s = m[0];
     if (s.startsWith("`")) out.push(<code key={key + i++}>{s.slice(1, -1)}</code>);
-    else if (s.startsWith("**")) out.push(<b key={key + i++}>{s.slice(2, -2)}</b>);
+    else if (s.startsWith("**")) out.push(<b key={key + i++}>{inline(s.slice(2, -2), key + i + "b")}</b>);
+    else if (s.startsWith("~~")) out.push(<s key={key + i++}>{s.slice(2, -2)}</s>);
+    else if (s.startsWith("*")) out.push(<em key={key + i++}>{s.slice(1, -1)}</em>);
     else {
       const lm = /^\[([^\]]+)\]\((.+)\)$/.exec(s)!;
       out.push(<a key={key + i++} href={lm[2]} onClick={(e) => { e.preventDefault(); openUrl(lm[2]).catch(() => {}); }}>{lm[1]}</a>);
@@ -30,6 +32,26 @@ function inline(text: string, key: string): ReactNode[] {
   }
   if (last < text.length) out.push(text.slice(last));
   return out;
+}
+
+/** GFM table pieces: a separator row like |---|:--:|--:| and the cells of a row. */
+const TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+function tableCells(line: string): string[] {
+  let s = line.trim();
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|") && !s.endsWith("\\|")) s = s.slice(0, -1);
+  return s.split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|"));
+}
+
+function MdTable({ head, align, rows, k }: { head: string[]; align: ("left" | "center" | "right" | undefined)[]; rows: string[][]; k: string }) {
+  return (
+    <div className="md-table">
+      <table>
+        <thead><tr>{head.map((c, i) => <th key={i} style={{ textAlign: align[i] }}>{inline(c, `${k}h${i}-`)}</th>)}</tr></thead>
+        <tbody>{rows.map((r, ri) => <tr key={ri}>{head.map((_, ci) => <td key={ci} style={{ textAlign: align[ci] }}>{inline(r[ci] ?? "", `${k}r${ri}c${ci}-`)}</td>)}</tr>)}</tbody>
+      </table>
+    </div>
+  );
 }
 
 function CodeBlock({ code, lang }: { code: string; lang: string }) {
@@ -68,7 +90,26 @@ export function Markdown({ text }: { text: string }) {
           out.push(list.ordered ? <ol key={out.length}>{items}</ol> : <ul key={out.length}>{items}</ul>);
           list = null;
         };
-        for (const ln of lines) {
+        let quote: string[] = [];
+        const flushQuote = () => { if (quote.length) { out.push(<blockquote key={out.length}>{inline(quote.join(" "), `q${out.length}-`)}</blockquote>); quote = []; } };
+        for (let li_ = 0; li_ < lines.length; li_++) {
+          const ln = lines[li_];
+          // table: a row with pipes followed by a separator row
+          if (ln.includes("|") && li_ + 1 < lines.length && TABLE_SEP.test(lines[li_ + 1]) && lines[li_ + 1].includes("-")) {
+            flushPara(); flushList(); flushQuote();
+            const head = tableCells(ln);
+            const align = tableCells(lines[li_ + 1]).map((c) => (c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : c.startsWith(":") ? "left" : undefined) as "left" | "center" | "right" | undefined);
+            const rows: string[][] = [];
+            let j = li_ + 2;
+            while (j < lines.length && lines[j].trim() && lines[j].includes("|")) rows.push(tableCells(lines[j++]));
+            out.push(<MdTable key={out.length} k={`t${out.length}`} head={head} align={align} rows={rows} />);
+            li_ = j - 1;
+            continue;
+          }
+          const q = /^\s*>\s?(.*)$/.exec(ln);
+          if (q) { flushPara(); flushList(); quote.push(q[1]); continue; }
+          flushQuote();
+          if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(ln)) { flushPara(); flushList(); out.push(<hr key={out.length} />); continue; }
           const h = /^(#{1,4})\s+(.*)$/.exec(ln);
           const li = /^\s*([-*•]|\d+[.)])\s+(.*)$/.exec(ln);
           if (h) { flushPara(); flushList(); out.push(<h4 key={out.length}>{inline(h[2], `h${out.length}-`)}</h4>); }
@@ -80,7 +121,7 @@ export function Markdown({ text }: { text: string }) {
           } else if (!ln.trim()) { flushPara(); flushList(); }
           else { flushList(); para.push(ln.trim()); }
         }
-        flushPara(); flushList();
+        flushPara(); flushList(); flushQuote();
       }
       if (i + 2 < parts.length + 1 && parts[i + 2] !== undefined) {
         const code = parts[i + 2].replace(/\n$/, "");
@@ -366,7 +407,9 @@ function TemplateMenu({ draft, host, onPick, onClose }: { draft: string; host: s
 /* ------------------------------------------------------------------ panel width */
 
 const W_KEY = "termx.aiWidth";
-const clampW = (w: number) => Math.round(Math.max(340, Math.min(w, Math.min(960, window.innerWidth - 480))));
+/** The header (title, model, buttons, window controls) and the composer row only fit from about 420px. */
+const MIN_W = 420;
+const clampW = (w: number) => Math.round(Math.max(MIN_W, Math.min(w, Math.min(960, window.innerWidth - 400))));
 function loadW() { try { const v = Number(localStorage.getItem(W_KEY)); return v > 0 ? v : 460; } catch { return 460; } }
 
 export function AiPanel() {
@@ -409,6 +452,14 @@ export function AiPanel() {
     if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 160) el.scrollTop = el.scrollHeight;
   });
   useEffect(() => { scroller.current && (scroller.current.scrollTop = scroller.current.scrollHeight); }, [history.length]);
+  // closing the panel unmounts the list: when it opens again, land on the newest message, not the first
+  useEffect(() => {
+    if (!open) return;
+    const jump = () => { if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight; };
+    jump();
+    const id = requestAnimationFrame(jump);
+    return () => cancelAnimationFrame(id);
+  }, [open, setup]);
 
   // what the AI will look at by default
   const sid = useMemo(() => activeSid(), [tabs, activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -444,7 +495,7 @@ export function AiPanel() {
       <div className="ai-resize" onPointerDown={startResize} onDoubleClick={() => { setWidth(clampW(460)); try { localStorage.removeItem(W_KEY); } catch { /* ignore */ } }} title={t("ai.resize")} />
       <div className="ai-head" data-tauri-drag-region>
         <span className="ai-title"><Sparkles size={15} />TermX AI</span>
-        <button className="ai-model" onClick={() => setSetup(!setup)} title={t("ai.settings")}><span className="ai-model-t">{preset.name} · <span className="mono">{model || "—"}</span></span></button>
+        <button className="ai-model" onClick={() => setSetup(!setup)} title={`${preset.name} · ${model || "—"} — ${t("ai.settings")}`}><span className="ai-model-t"><span className="mono">{model || preset.name}</span></span></button>
         <span className="sp" data-tauri-drag-region />
         <button className="icon-btn" title={t("ai.newChat")} disabled={!history.length && !error} onClick={reset}><Plus size={15} /></button>
         <button className="icon-btn" title={t("common.close")} onClick={() => setOpen(false)}><X size={15} /></button>
@@ -491,14 +542,17 @@ export function AiPanel() {
             onChange={(e) => { setInput(e.target.value); grow(e.target); }}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} />
           <div className="ai-box-bar">
-            <button className={"chip-ctx ai-tpl-btn" + (tplOpen ? " on" : "")} onClick={() => setTplOpen(!tplOpen)} title={t("ai.tpl.title")}><BookMarked size={12} />{t("ai.tpl.short")}</button>
+            <div className="ai-chips">
+            <button className={"chip-ctx ai-tpl-btn" + (tplOpen ? " on" : "")} onClick={() => setTplOpen(!tplOpen)} title={t("ai.tpl.title")}><BookMarked size={12} /><span className="ell">{t("ai.tpl.short")}</span></button>
             {ctxHost ? <span className={"chip-ctx" + (isProd ? " prod" : "")} title={isProd ? t("ai.prodCtx") : undefined}>{isProd ? <ShieldAlert size={12} /> : <TerminalSquare size={12} />}<span className="ell">{ctxHost.label}</span>{sessions[sid!]?.state && sessions[sid!]?.state !== "connected" && <em> · {sessions[sid!]?.state}</em>}</span> : <span className="chip-ctx muted"><Server size={12} />{t("ai.ctxAll", { n: hosts.length })}</span>}
-            <span className={"chip-ctx " + (ai.approval === "always" ? "warn" : "muted")} title={t("ai.approvalHint")}>{t(("ai.approval." + ai.approval) as never)}</span>
-            <span className="sp" />
+            <span className={"chip-ctx " + (ai.approval === "always" ? "warn" : "muted")} title={t("ai.approvalHint")}><span className="ell">{t(("ai.approval." + ai.approval) as never)}</span></span>
+            </div>
+            <div className="ai-box-end">
             {usage.input + usage.output > 0 && <span className="ai-usage" title={`${usage.input} in · ${usage.output} out`}>{Math.round((usage.input + usage.output) / 100) / 10}k</span>}
             {busy
               ? <button className="ai-send stop" onClick={stop} title={t("ai.stop")}><Square size={11} /></button>
               : <button className="ai-send" onClick={submit} disabled={!input.trim() || !ready} title={`${t("ai.send")} (Enter) · Shift+Enter ↵ · ${isMac ? "⌘J" : "Ctrl+Shift+J"}`}><ArrowUp size={15} /></button>}
+            </div>
           </div>
         </div>
       </div>

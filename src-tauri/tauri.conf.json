@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "TermX",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "identifier": "com.kroombox.termx",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -16,7 +16,7 @@
         "title": "TermX",
         "width": 1180,
         "height": 740,
-        "minWidth": 860,
+        "minWidth": 960,
         "minHeight": 520,
         "center": true,
         "decorations": true,
