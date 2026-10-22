@@ -825,7 +825,8 @@ button.chip-ctx { cursor: pointer; border: 0; }
 .ai-chips { flex: 1; min-width: 0; display: flex; flex-wrap: nowrap; align-items: center; gap: 5px; }
 .ai-box-end { flex-shrink: 0; display: flex; align-items: center; gap: 5px; }
 .ai-box-bar .sp { flex: 1; }
-.ai-box-bar .chip-ctx { flex-shrink: 1; min-width: 30px; }
+.ai-box-bar .chip-ctx { flex-shrink: 1; min-width: 30px; overflow: hidden; }
+.ai-box-bar .chip-ctx em { flex-shrink: 0; }
 .ai-box-bar .ai-tpl-btn { flex-shrink: 0; }
 .ai-box-bar .chip-ctx > svg { flex-shrink: 0; }
 .ai-box-bar .chip-ctx .ell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; min-width: 0; }

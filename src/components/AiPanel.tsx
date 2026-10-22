@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Activity, ArrowUp, BookMarked, Box, Check, ChevronRight, CircleAlert, CircleHelp, Clock, Code, Copy, CornerDownLeft, Download, Eye, FileText, Gauge, Globe, HardDrive, KeyRound, Layers, ListTree, Loader2, Network, Plus, ScrollText, Search, Server, Shield, ShieldAlert, Sparkles, Square, SquareTerminal, TerminalSquare, Trash2, X, Zap, Braces, Minimize2 } from "lucide-react";
+import { Activity, ArrowUp, BookMarked, Box, Check, ChevronRight, CircleAlert, CircleHelp, Clock, Code, Copy, CornerDownLeft, Download, Eye, FileText, Gauge, Globe, HardDrive, KeyRound, Layers, ListTree, Loader2, Network, Plus, ScrollText, Search, Server, Shield, ShieldAlert, Sparkles, Square, SquareTerminal, TerminalSquare, Trash2, Zap, Braces, Minimize2 } from "lucide-react";
 import { api, errText, uid, type AiMsg, type AiPart, type AiTemplate } from "../lib/api";
 import { LOCAL_HOST, useStore } from "../lib/store";
 import { useT } from "../lib/i18n";
@@ -435,7 +435,7 @@ function loadW() { try { const v = Number(localStorage.getItem(W_KEY)); return v
 
 export function AiPanel() {
   const t = useT();
-  const { open, setOpen, history, busy, stream, error, compacting, ctxEvent } = useAi();
+  const { open, history, busy, stream, error, compacting, ctxEvent } = useAi();
   const ai = useStore((s) => s.vault!.settings.ai);
   const tabs = useStore((s) => s.tabs);
   const activeTab = useStore((s) => s.active);
@@ -525,7 +525,6 @@ export function AiPanel() {
         <span className="sp" data-tauri-drag-region />
         <SessionsMenu />
         <button className="icon-btn" title={t("ai.newChat")} disabled={!history.length && !error} onClick={() => void newSession()}><Plus size={15} /></button>
-        <button className="icon-btn" title={t("common.close")} onClick={() => setOpen(false)}><X size={15} /></button>
       </div>
 
       {(setup || (keys && !ready)) ? (
@@ -572,7 +571,7 @@ export function AiPanel() {
           <div className="ai-box-bar">
             <div className="ai-chips">
             <button className={"chip-ctx ai-tpl-btn" + (tplOpen ? " on" : "")} onClick={() => setTplOpen(!tplOpen)} title={t("ai.tpl.title")}><BookMarked size={12} /><span className="ell">{t("ai.tpl.short")}</span></button>
-            {ctxHost ? <span className={"chip-ctx" + (isProd ? " prod" : "")} title={isProd ? t("ai.prodCtx") : undefined}>{isProd ? <ShieldAlert size={12} /> : <TerminalSquare size={12} />}<span className="ell">{ctxHost.label}</span>{sessions[sid!]?.state && sessions[sid!]?.state !== "connected" && <em> · {sessions[sid!]?.state}</em>}</span> : <span className="chip-ctx muted"><Server size={12} />{t("ai.ctxAll", { n: hosts.length })}</span>}
+            {ctxHost ? <span className={"chip-ctx" + (isProd ? " prod" : "")} title={isProd ? t("ai.prodCtx") : undefined}>{isProd ? <ShieldAlert size={12} /> : <TerminalSquare size={12} />}<span className="ell">{ctxHost.label}</span>{sessions[sid!]?.state && sessions[sid!]?.state !== "connected" && <em> · {sessions[sid!]?.state}</em>}</span> : <span className="chip-ctx muted" title={t("ai.ctxAll", { n: hosts.length })}><Server size={12} /><span className="ell">{t("ai.ctxAll", { n: hosts.length })}</span></span>}
             <span className={"chip-ctx " + (ai.approval === "always" ? "warn" : "muted")} title={t("ai.approvalHint")}><span className="ell">{t(("ai.approval." + ai.approval) as never)}</span></span>
             </div>
             <div className="ai-box-end">
