@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { ArrowUpCircle, Archive, Download, KeyRound, Lock, RefreshCw, ScrollText, Trash2, Upload } from "lucide-react";
+import { ArrowUpCircle, Archive, Database, Download, KeyRound, Lock, Palette, RefreshCw, ScrollText, Search, ShieldCheck, Sparkles, SquareTerminal, Trash2, Upload, X } from "lucide-react";
 import { api, errText } from "../lib/api";
 import { useStore } from "../lib/store";
 import { confirmDialog } from "../lib/dialogs";
@@ -12,6 +12,16 @@ import { Field, Modal, PasswordInput, Seg, Switch } from "./ui";
 import { AiSetup } from "./AiPanel";
 import { fmtTokens } from "./AiContext";
 import { LIMIT_PRESETS } from "../lib/ai/context";
+
+const TABS = [
+  { id: "interface", icon: Palette, label: "set.interface" },
+  { id: "terminal", icon: SquareTerminal, label: "set.terminal" },
+  { id: "ai", icon: Sparkles, label: "ai.title" },
+  { id: "security", icon: ShieldCheck, label: "set.security" },
+  { id: "data", icon: Database, label: "set.data" },
+  { id: "updates", icon: Download, label: "set.updates" },
+] as const;
+type TabId = (typeof TABS)[number]["id"];
 
 const ACCENTS = ["#3ddc97", "#5aa9ff", "#b58cff", "#ff8ab3", "#ffb35c", "#f2d45c", "#5fd7e0", "#ff6b6b"];
 const FONTS = ["JetBrains Mono", "Menlo", "SF Mono", "Monaco", "Consolas", "Cascadia Code", "Fira Code", "Source Code Pro", "IBM Plex Mono", "Hack", "DejaVu Sans Mono", "Ubuntu Mono"];
@@ -136,6 +146,27 @@ export function SettingsView() {
   const dark = useResolvedDark();
   const s = vault!.settings;
   const [dlg, setDlg] = useState<PwDialog | null>(null);
+  const [tab, setTabState] = useState<TabId>(() => { try { const v = localStorage.getItem("termx.settings.tab") as TabId; return TABS.some((x) => x.id === v) ? v : "interface"; } catch { return "interface"; } });
+  const setTab = (id: TabId) => { setTabState(id); try { localStorage.setItem("termx.settings.tab", id); } catch { /* ignore */ } };
+  const [q, setQ] = useState("");
+  const body = useRef<HTMLDivElement>(null);
+  const vis = (id: TabId) => !!q.trim() || tab === id;
+  // search: hide the rows that do not match and the sections left with none
+  useEffect(() => {
+    const root = body.current; if (!root) return;
+    const n = q.trim().toLowerCase();
+    let shown = 0;
+    root.querySelectorAll<HTMLElement>(".section").forEach((sec) => {
+      let any = false;
+      sec.querySelectorAll<HTMLElement>(".setting").forEach((row) => {
+        const hit = !n || (row.textContent ?? "").toLowerCase().includes(n) || (sec.querySelector("h2")?.textContent ?? "").toLowerCase().includes(n);
+        row.hidden = !hit; if (hit) any = true;
+      });
+      sec.style.display = n && !any ? "none" : "";
+      if (n && any) shown++;
+    });
+    const none = root.querySelector<HTMLElement>(".set-none"); if (none) none.hidden = !(n && shown === 0);
+  });
   const status = vault!.status;
   const termTh = terminalTheme(s.terminalTheme, dark, s.accent);
   const startBackup = async () => {
@@ -160,10 +191,24 @@ export function SettingsView() {
   };
 
   return (
-    <div className="page"><div className="page-inner" style={{ maxWidth: 760 }}>
-      <div className="page-head"><h1>{t("set.title")}</h1></div>
+    <div className="page"><div className="page-inner" style={{ maxWidth: 1000 }}>
+      <div className="page-head">
+        <h1>{t("set.title")}</h1>
+        <span className="sp" />
+        <label className="set-search"><Search size={14} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("set.search")} spellCheck={false} onKeyDown={(e) => { if (e.key === "Escape") setQ(""); }} />
+          {q && <button type="button" className="icon-btn sm" title={t("common.close")} onClick={() => setQ("")}><X size={12} /></button>}
+        </label>
+      </div>
+      <div className="set-layout">
+        <nav className="set-nav" aria-label={t("set.title")}>
+          {TABS.map(({ id, icon: Ico, label }) => (
+            <button key={id} className={!q && tab === id ? "on" : ""} onClick={() => { setQ(""); setTab(id); }}><Ico size={15} /><span>{t(label)}</span></button>
+          ))}
+        </nav>
+        <div className="set-body" ref={body}>
 
-      <div className="section">
+      <div className="section" hidden={!vis("interface")}>
         <h2>{t("set.interface")}</h2>
         <div className="panel list">
           <Row title={t("set.theme")}>
@@ -191,7 +236,7 @@ export function SettingsView() {
         </div>
       </div>
 
-      <div className="section">
+      <div className="section" hidden={!vis("terminal")}>
         <h2>{t("set.terminal")}</h2>
         <div className="panel list">
           <div>
@@ -249,7 +294,7 @@ export function SettingsView() {
         </div>
       </div>
 
-      <div className="section">
+      <div className="section" hidden={!vis("ai")}>
         <h2>{t("ai.title")}</h2>
         <div className="panel list">
           <div className="setting ai-setting"><div className="meta"><div>{t("ai.provider")}</div><small>{t("ai.setupBody")}</small></div><div className="ctl"><AiSetup /></div></div>
@@ -275,7 +320,7 @@ export function SettingsView() {
         </div>
       </div>
 
-      <div className="section">
+      <div className="section" hidden={!vis("data")}>
         <h2>{t("nav.logs")}</h2>
         <div className="panel list">
           <Row title={t("logs.record")} hint={t("logs.recordHint")}><Switch on={s.sessionLogs} onChange={(b) => saveSettings({ sessionLogs: b })} /></Row>
@@ -283,7 +328,7 @@ export function SettingsView() {
         </div>
       </div>
 
-      <div className="section">
+      <div className="section" hidden={!vis("updates")}>
         <h2>{t("set.updates")}</h2>
         <div className="panel list">
           <UpdateRow />
@@ -291,7 +336,7 @@ export function SettingsView() {
         </div>
       </div>
 
-      <div className="section">
+      <div className="section" hidden={!vis("security")}>
         <h2>{t("set.security")}</h2>
         <div className="panel list">
           <Row title={t("sec.vault")} hint={t(status.mode === "master" ? "sec.modeMaster" : "sec.modeKeychain")}>
@@ -321,7 +366,7 @@ export function SettingsView() {
       </div>
       {dlg && <PasswordDialog d={dlg} onClose={() => setDlg(null)} />}
 
-      <div className="section">
+      <div className="section" hidden={!vis("security")}>
         <h2>{t("set.knownHosts")}</h2>
         <div className="panel list">
           {(vault?.knownHosts ?? []).length === 0 && <div className="li" style={{ color: "var(--text-3)" }}>{t("set.knownEmpty")}</div>}
@@ -334,7 +379,7 @@ export function SettingsView() {
         </div>
       </div>
 
-      <div className="section">
+      <div className="section" hidden={!vis("data")}>
         <h2>{t("set.data")}</h2>
         <div className="panel list">
           <Row title={t("set.export")} hint={t("set.exportHint")}><button className="btn" onClick={doExport}><Download size={14} />{t("set.export")}</button></Row>
@@ -343,7 +388,10 @@ export function SettingsView() {
         </div>
       </div>
 
-      <div style={{ textAlign: "center", color: "var(--text-3)", fontSize: 12 }}>TermX {info?.version} · {info?.os}</div>
+      <div className="set-none" hidden>{t("set.noResults")}</div>
+      <div className="set-foot">TermX {info?.version} · {info?.os}</div>
+        </div>
+      </div>
     </div></div>
   );
 }
