@@ -10,7 +10,7 @@ interface Item { id: string; group: string; label: string; sub?: string; icon: R
 
 export function Palette() {
   const t = useT();
-  const { vault, tabs, setPalette, openTerm, openSftp, openHostDialog, setView, setActive, openGrid } = useStore();
+  const { vault, tabs, shells, setPalette, openTerm, openSftp, openHostDialog, setView, setActive, openGrid } = useStore();
   const [q, setQ] = useState("");
   const [idx, setIdx] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -27,6 +27,7 @@ export function Palette() {
     for (const w of vault?.workspaces ?? []) out.push({ id: "w" + w.id, group: t("nav.workspaces"), label: w.name, icon: <Play size={15} />, run: () => openGrid(w) });
     out.push(
       { id: "a8", group: t("palette.actions"), label: t("term.local"), sub: t("term.localHint"), icon: <SquareTerminal size={15} />, run: () => useStore.getState().openLocal() },
+      ...shells.slice(1).map((s) => ({ id: "sh" + s.id, group: t("palette.actions"), label: `${t("term.local")} · ${s.name}`, sub: s.kind === "wsl" ? t("term.wsl") : t("term.localHint"), icon: <SquareTerminal size={15} />, run: () => useStore.getState().openLocal(s) })),
       { id: "a9", group: t("palette.actions"), label: t("ai.title"), icon: <Sparkles size={15} />, run: () => useAi.getState().setOpen(true) },
       { id: "a0", group: t("palette.actions"), label: t("ws.newEmpty"), icon: <LayoutGrid size={15} />, run: () => openGrid() },
       { id: "a5", group: t("palette.actions"), label: t("nav.workflows"), icon: <Workflow size={15} />, run: () => setView("workflows") },
@@ -39,7 +40,7 @@ export function Palette() {
     );
     if (!s) return out.filter((i) => !i.id.startsWith("f") && !i.id.startsWith("g"));
     return out.filter((i) => (i.label + " " + (i.sub ?? "")).toLowerCase().includes(s));
-  }, [q, vault, tabs, t, openTerm, openSftp, openHostDialog, setView, setActive, openGrid]);
+  }, [q, vault, tabs, shells, t, openTerm, openSftp, openHostDialog, setView, setActive, openGrid]);
 
   useEffect(() => setIdx(0), [q]);
   useEffect(() => {

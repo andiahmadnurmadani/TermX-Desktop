@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, errText, uid, type AppInfo, type Layout, type SessionLog, type SessionState, type Settings, type Vault, type Workspace } from "./api";
+import { api, errText, uid, type AppInfo, type ShellInfo, type Layout, type SessionLog, type SessionState, type Settings, type Vault, type Workspace } from "./api";
 
 /** Host id used by local (this computer) terminal tabs. */
 export const LOCAL_HOST = "__local";
@@ -18,6 +18,8 @@ export interface Tab {
   id: string; kind: "term" | "sftp" | "grid" | "run" | "log"; title: string;
   /** term/sftp */
   hostId: string;
+  /** local terminal tabs: the shell id (see ShellInfo), unset = default */
+  shell?: string;
   grid?: Grid;
   /** run tabs: workflow run id */
   runId?: string;
@@ -48,7 +50,10 @@ interface S {
   setView: (v: View) => void;
   setActive: (id: string | null) => void;
   openTerm: (hostId: string) => void;
-  openLocal: () => string;
+  /** shells this computer can open (the first is the default); empty until loaded */
+  shells: ShellInfo[];
+  loadShells: () => Promise<void>;
+  openLocal: (shell?: ShellInfo) => string;
   openSftp: (hostId: string) => void;
   openGrid: (opts?: Partial<Workspace>) => void;
   openHostInGrid: (hostId: string) => void;
@@ -104,10 +109,13 @@ export const useStore = create<S>((set, get) => ({
     // refresh "last connected" shortly after the connection is made
     setTimeout(() => get().load().catch(() => {}), 2500);
   },
-  openLocal: () => {
-    const n = get().tabs.filter((t) => t.hostId === LOCAL_HOST).length;
-    const base = get().vault?.settings.language === "id" ? "Lokal" : "Local";
-    const tab: Tab = { id: uid(), kind: "term", hostId: LOCAL_HOST, seq: n + 1, title: n ? `${base} (${n + 1})` : base };
+  shells: [],
+  loadShells: async () => { try { set({ shells: await api.localShells() }); } catch { /* the default shell still works */ } },
+  openLocal: (shell) => {
+    const same = get().tabs.filter((t) => t.hostId === LOCAL_HOST && t.shell === shell?.id);
+    const n = same.length;
+    const base = shell && shell.kind !== "default" ? shell.name.replace(/ \(WSL\)$/, "") : get().vault?.settings.language === "id" ? "Lokal" : "Local";
+    const tab: Tab = { id: uid(), kind: "term", hostId: LOCAL_HOST, shell: shell?.id, seq: n + 1, title: n ? `${base} (${n + 1})` : base };
     set((s) => ({ tabs: [...s.tabs, tab], active: tab.id, sessions: { ...s.sessions, [tab.id]: { state: "connecting" } } }));
     return tab.id;
   },

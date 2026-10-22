@@ -72,6 +72,7 @@ export interface Vault {
   workspaces: Workspace[]; workflows: WorkflowDef[]; status: VaultStatus;
 }
 export interface FileEntry { name: string; path: string; isDir: boolean; isLink: boolean; size: number; mtime: number; mode: number }
+export interface ShellInfo { id: string; name: string; kind: "default" | "powershell" | "cmd" | "wsl" }
 export interface AppInfo { version: string; os: string; dataDir: string }
 export interface ExecOut { stdout: string; stderr: string; exit: number | null }
 
@@ -93,7 +94,8 @@ export const api = {
   keyInstall: (keyId: string, hostId: string) => invoke<void>("key_install", { keyId, hostId }),
   sshOpen: (sessionId: string, hostId: string, cols: number, rows: number, data: Channel<ArrayBuffer>) =>
     invoke<void>("ssh_open", { sessionId, hostId, cols, rows, data }),
-  localOpen: (sessionId: string, cols: number, rows: number, data: Channel<ArrayBuffer>) => invoke<string>("local_open", { sessionId, cols, rows, data }),
+  localOpen: (sessionId: string, cols: number, rows: number, shell: string | null, data: Channel<ArrayBuffer>) => invoke<string>("local_open", { sessionId, cols, rows, shell, data }),
+  localShells: () => invoke<ShellInfo[]>("local_shells"),
   sshWrite: (sessionId: string, data: string) => invoke<void>("ssh_write", { sessionId, data }),
   sshFillPassword: (sessionId: string) => invoke<void>("ssh_fill_password", { sessionId }),
   sshResize: (sessionId: string, cols: number, rows: number) => invoke<void>("ssh_resize", { sessionId, cols, rows }),

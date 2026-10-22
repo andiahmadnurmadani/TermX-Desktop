@@ -7,6 +7,7 @@ import { ago } from "../lib/util";
 import { confirmDialog, promptDialog } from "../lib/dialogs";
 import { ContextMenu, EmptyState, type MenuItem } from "./ui";
 import { OsIcon } from "../lib/os";
+import { LocalShellButton } from "./LocalShellMenu";
 
 export const hostColor = (c: number) => `var(--c${c % 8})`;
 
@@ -117,7 +118,7 @@ export function HostsView() {
         <div className="title"><h1>{t("hosts.title")}</h1><span className="count-sub">{t("hosts.count", { n: hosts.length })}</span></div>
         <div className="sp" />
         <div className="acts">
-          <button className="btn" onClick={() => useStore.getState().openLocal()} title={t("term.localHint")}><SquareTerminal size={15} /><span className="lbl">{t("term.local")}</span></button>
+          <LocalShellButton className="btn" title={t("term.localHint")}><SquareTerminal size={15} /><span className="lbl">{t("term.local")}</span></LocalShellButton>
           <button className="btn" onClick={newGroup}><FolderPlus size={15} /><span className="lbl">{t("hosts.newGroup")}</span></button>
           <button className="btn primary" onClick={() => openHostDialog(null)}><Plus size={15} /><span className="lbl">{t("hosts.new")}</span></button>
         </div>

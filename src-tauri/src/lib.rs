@@ -610,9 +610,15 @@ async fn ssh_open(
     state.mgr.open_shell(session_id, &host_id, cols, rows, tmux, sink).map_err(err)
 }
 
+/// Shells that can be opened locally (on Windows: PowerShell, cmd and the WSL distros). Runs `wsl.exe`, so it is async.
+#[tauri::command]
+async fn local_shells() -> Vec<termx_core::local::ShellInfo> {
+    tauri::async_runtime::spawn_blocking(termx_core::local::list_shells).await.unwrap_or_default()
+}
+
 /// A shell on this computer. Write/resize/close go through the ssh_* commands, which route by id.
 #[tauri::command]
-fn local_open(app: AppHandle, state: State<'_, AppState>, session_id: String, cols: u32, rows: u32, data: Channel<InvokeResponseBody>) -> CmdResult<String> {
+fn local_open(app: AppHandle, state: State<'_, AppState>, session_id: String, cols: u32, rows: u32, shell: Option<String>, data: Channel<InvokeResponseBody>) -> CmdResult<String> {
     let id = session_id.clone();
     let app2 = app.clone();
     let shell = state
@@ -621,6 +627,7 @@ fn local_open(app: AppHandle, state: State<'_, AppState>, session_id: String, co
             &session_id,
             cols.min(u16::MAX as u32) as u16,
             rows.min(u16::MAX as u32) as u16,
+            shell.as_deref(),
             move |bytes| {
                 let _ = data.send(InvokeResponseBody::Raw(bytes));
             },
@@ -950,6 +957,7 @@ pub fn run() {
             ssh_write,
             ssh_fill_password,
             local_open,
+            local_shells,
             ssh_resize,
             ssh_reconnect,
             ssh_close,

@@ -308,7 +308,7 @@ export function TerminalView({ sid, hostId, visible, onClose, pane }: { sid: str
       };
       cleanups.push(() => window.clearTimeout(check));
       try {
-        if (isLocal) setShell(await api.localOpen(tab.id, term.cols, term.rows, ch));
+        if (isLocal) setShell(await api.localOpen(tab.id, term.cols, term.rows, useStore.getState().tabs.find((x) => x.id === tab.id)?.shell ?? null, ch));
         else await api.sshOpen(tab.id, tab.hostId, term.cols, term.rows, ch);
       } catch (e) {
         patchSession(tab.id, { state: "failed", message: errText(e) });

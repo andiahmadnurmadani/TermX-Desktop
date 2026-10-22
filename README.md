@@ -30,7 +30,7 @@ Tauri 2 (Rust) + React + xterm.js. MIT licensed. No account, no cloud, no teleme
   - API keys are encrypted in the local vault and never leave the app except to the provider you chose.
 - **Command autocomplete**: suggestions from that host's history, your snippets and common commands while you type (↑↓, Tab/Enter, Esc), like Termius. History is stored encrypted.
 - **Custom title bar** on Windows and Linux that follows the app theme.
-- **Local terminal** (`Ctrl/⌘+L`): your own shell (zsh / bash / PowerShell) in a tab, next to your SSH sessions.
+- **Local terminal** (`Ctrl/⌘+L`): your own shell (zsh / bash / PowerShell) in a tab, next to your SSH sessions. On Windows the button offers PowerShell, Command Prompt and every installed **WSL** distribution (Ubuntu, Debian, …), each opening in its own home directory.
 - **SFTP**: a file browser with drag & drop, folder upload/download and an inline text editor.
   - Works on NAS boxes too. If the SFTP subsystem is off, TermX falls back to `sftp-server` when available; otherwise it says how to turn SFTP on (Synology: Control Panel → File Services → FTP → SFTP; QNAP: Network & File Services → Telnet/SSH → Enable SFTP) instead of hanging until a timeout.
 - **Credential vault**: passwords and private keys are encrypted with AES-256-GCM.

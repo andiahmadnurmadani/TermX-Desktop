@@ -28,6 +28,7 @@ import { Palette } from "./components/Palette";
 import { BrandMark, DialogHost, Toasts } from "./components/ui";
 import { AiButton, AiPanel } from "./components/AiPanel";
 import { useAi } from "./lib/ai/agent";
+import { LocalShellButton } from "./components/LocalShellMenu";
 
 const NAV: { v: View; icon: typeof Server; label: Key }[] = [
   { v: "hosts", icon: Server, label: "nav.hosts" },
@@ -53,6 +54,7 @@ export default function App() {
   const aiOpen = useAi((s) => s.open);
 
   useEffect(() => { load().catch((e) => toast(String(e), "error")); }, [load, toast]);
+  useEffect(() => { void useStore.getState().loadShells(); }, []);
 
   // global shortcuts
   useEffect(() => {
@@ -122,7 +124,7 @@ export default function App() {
               </div>
             ))}
             <button className="icon-btn" style={{ alignSelf: "center", marginLeft: 4 }} title={t("hosts.new")} onClick={() => openHostDialog(null)}><Plus size={16} /></button>
-            <button className="icon-btn" style={{ alignSelf: "center" }} title={`${t("term.local")} (${modLabel}L)`} onClick={() => useStore.getState().openLocal()}><SquareTerminal size={15} /></button>
+            <LocalShellButton className="icon-btn" style={{ alignSelf: "center" }} title={`${t("term.local")} (${modLabel}L)`}><SquareTerminal size={15} /></LocalShellButton>
           </div>
           <div className="grow" data-tauri-drag-region />
           <AiButton />
